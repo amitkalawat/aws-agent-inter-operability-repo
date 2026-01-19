@@ -439,25 +439,25 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ user }) => {
         )}
         {connectionStatus === 'connected' && (
           <div className="status-indicator connected">
-            🟢 Connected to AgentCore
+            <span>● Connected to AgentCore</span>
             <label className="streaming-toggle">
               <input
                 type="checkbox"
                 checked={streamingEnabled}
                 onChange={(e) => setStreamingEnabled(e.target.checked)}
               />
-              ⚡ Streaming {streamingEnabled ? 'ON' : 'OFF'}
+              Streaming {streamingEnabled ? 'enabled' : 'disabled'}
             </label>
             <button className="new-chat-button" onClick={handleNewConversation}>
-              🆕 New Chat
+              New Chat
             </button>
           </div>
         )}
         {connectionStatus === 'error' && (
           <div className="status-indicator error">
-            🔴 Connection Error
+            <span>● Connection Error</span>
             <button className="retry-button" onClick={testConnection}>
-              🔄 Retry
+              Retry
             </button>
           </div>
         )}
@@ -466,8 +466,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ user }) => {
       {/* Error Display */}
       {error && (
         <div className="error-message">
-          ⚠️ {error}
-          <button onClick={() => setError(null)}>✕</button>
+          {error}
+          <button onClick={() => setError(null)}>×</button>
         </div>
       )}
 
@@ -477,7 +477,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ user }) => {
           <div key={message.id} className={`message ${message.role}`}>
             <div className="message-header">
               <span className="message-sender">
-                {message.role === 'user' ? '👤 You' : '🤖 Assistant'}
+                {message.role === 'user' ? 'You' : 'Assistant'}
               </span>
               <span className="message-time">
                 {formatTime(message.timestamp)}
@@ -485,9 +485,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ user }) => {
             </div>
             <div className="message-content">
               {formatMessage(message.content)}
-              {currentStreamingMessageId === message.id && isStreaming && (
-                <span className="terminal-cursor">█</span>
-              )}
             </div>
           </div>
         ))}
@@ -495,8 +492,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ user }) => {
         {isLoading && !streamingEnabled && (
           <div className="message assistant">
             <div className="message-header">
-              <span className="message-sender">🤖 Assistant</span>
-              <span className="message-time">typing...</span>
+              <span className="message-sender">Assistant</span>
+              <span className="message-time">thinking...</span>
             </div>
             <div className="message-content typing-indicator">
               <div className="typing-dots">
@@ -504,7 +501,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ user }) => {
                 <span></span>
                 <span></span>
               </div>
-              Processing your request...
             </div>
           </div>
         )}
@@ -512,11 +508,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ user }) => {
         {isStreaming && currentStreamingMessageId && !messages.find(m => m.id === currentStreamingMessageId)?.content && (
           <div className="message assistant streaming">
             <div className="message-header">
-              <span className="message-sender">🤖 Assistant</span>
-              <span className="message-time">⚡ streaming...</span>
+              <span className="message-sender">Assistant</span>
+              <span className="message-time">generating...</span>
             </div>
-            <div className="message-content">
-              <span className="terminal-cursor">█</span>
+            <div className="message-content typing-indicator">
+              <div className="typing-dots">
+                <span></span>
+                <span></span>
+                <span></span>
+              </div>
             </div>
           </div>
         )}
@@ -545,7 +545,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ user }) => {
             className="send-button"
             title="Send message"
           >
-            {isLoading ? '⏳' : isStreaming ? '⚡' : '📤'}
+            {isLoading || isStreaming ? (
+              <span className="button-spinner"></span>
+            ) : (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="22" y1="2" x2="11" y2="13"></line>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+              </svg>
+            )}
           </button>
         </div>
         
