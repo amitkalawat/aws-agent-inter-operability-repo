@@ -105,6 +105,58 @@ cd ../../cdk
 cdk deploy
 ```
 
+## Post-Deployment Steps
+
+### 5. Create Admin User
+
+The Cognito User Pool is configured with self-signup disabled for security. You must manually create users via AWS CLI:
+
+```bash
+# Create an admin user
+aws cognito-idp admin-create-user \
+  --user-pool-id <CognitoUserPoolId> \
+  --username admin@acme.com \
+  --user-attributes Name=email,Value=admin@acme.com Name=email_verified,Value=true \
+  --temporary-password 'YourTempPassword123!' \
+  --message-action SUPPRESS \
+  --region us-west-2
+
+# Example with actual User Pool ID from deployment output:
+aws cognito-idp admin-create-user \
+  --user-pool-id us-west-2_XXXXXXXXX \
+  --username admin@acme.com \
+  --user-attributes Name=email,Value=admin@acme.com Name=email_verified,Value=true \
+  --temporary-password 'Acme@2024!' \
+  --message-action SUPPRESS \
+  --region us-west-2
+```
+
+**Password Requirements:**
+- Minimum 8 characters
+- At least one uppercase letter
+- At least one lowercase letter
+- At least one number
+- At least one special character
+
+**Note:** Users will be prompted to change their password on first login (status: `FORCE_CHANGE_PASSWORD`).
+
+### 6. (Optional) Set Permanent Password
+
+To skip the password change prompt, set a permanent password:
+
+```bash
+aws cognito-idp admin-set-user-password \
+  --user-pool-id <CognitoUserPoolId> \
+  --username admin@acme.com \
+  --password 'YourPermanentPassword123!' \
+  --permanent \
+  --region us-west-2
+```
+
+### 7. Update Frontend Configuration
+
+After deployment, update the frontend configuration with the stack outputs (see [Frontend Configuration](#frontend-configuration) section below).
+
 ## Configuration
 
 ### Environment Variables
@@ -115,7 +167,7 @@ Configuration is managed in `lib/config/index.ts`:
 |----------|---------|-------------|
 | `aws.region` | `us-west-2` | AWS deployment region |
 | `agent.runtimeName` | `acme_chatbot` | Main agent runtime name |
-| `agent.model` | `anthropic.claude-3-5-haiku-20241022-v1:0` | Bedrock model ID |
+| `agent.model` | `anthropic.claude-haiku-4-5-20250414-v1:0` | Bedrock model ID (Claude Haiku 4.5) |
 | `cognito.userPoolName` | `acme-corp-agentcore-users` | Cognito User Pool name |
 
 ### Modifying Configuration
