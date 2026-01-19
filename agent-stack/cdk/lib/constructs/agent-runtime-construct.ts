@@ -71,7 +71,7 @@ export class AgentRuntimeConstruct extends Construct {
       description: 'Default endpoint for ACME chatbot',
     });
 
-    // Grant Bedrock model invocation permissions
+    // Grant Bedrock model invocation permissions (including inference profiles)
     this.runtime.addToRolePolicy(
       new PolicyStatement({
         effect: Effect.ALLOW,
@@ -80,7 +80,10 @@ export class AgentRuntimeConstruct extends Construct {
           'bedrock:InvokeModelWithResponseStream',
         ],
         resources: [
-          `arn:aws:bedrock:${Config.aws.region}::foundation-model/${Config.agent.model}`,
+          // Inference profiles (global/cross-region)
+          `arn:aws:bedrock:${Config.aws.region}:*:inference-profile/*`,
+          `arn:aws:bedrock:*::foundation-model/anthropic.claude-*`,
+          // Direct model access (fallback)
           `arn:aws:bedrock:${Config.aws.region}::foundation-model/anthropic.claude-*`,
         ],
       })

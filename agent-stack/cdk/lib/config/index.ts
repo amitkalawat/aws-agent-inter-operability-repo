@@ -38,7 +38,7 @@ export const Config = {
   // Agent Configuration
   agent: {
     runtimeName: 'acme_chatbot',
-    model: 'anthropic.claude-haiku-4-5-20250414-v1:0',
+    model: 'global.anthropic.claude-haiku-4-5-20251001-v1:0',
     memory: {
       name: 'acme_chat_memory',
       expirationDays: 90,
