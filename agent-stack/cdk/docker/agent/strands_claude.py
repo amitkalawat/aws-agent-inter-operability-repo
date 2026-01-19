@@ -13,7 +13,7 @@ import base64
 import boto3
 import os
 from datetime import datetime
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from strands import Agent, tool
 from strands.models import BedrockModel
@@ -81,24 +81,59 @@ class MCPManager:
     def __init__(self):
         self._bearer_token: Optional[str] = None
         self._token_expires_at: float = 0
+        self._credentials: Optional[Dict[str, str]] = None
+        self._mcp_available: bool = False
+        self._initialized: bool = False
+
+    def _init_credentials(self) -> bool:
+        """Initialize credentials and check if MCP is available"""
+        if self._initialized:
+            return self._mcp_available
+
+        self._initialized = True
+        try:
+            self._credentials = secrets_manager.get_mcp_credentials()
+            # Check if any MCP URL is configured
+            mcp_urls = ['MCP_DOCS_URL', 'MCP_DATAPROC_URL', 'MCP_REKOGNITION_URL', 'MCP_NOVA_CANVAS_URL']
+            available_urls = [url for url in mcp_urls if self._credentials.get(url)]
+            if available_urls:
+                self._mcp_available = True
+                print(f"MCP integration available with URLs: {available_urls}")
+            else:
+                print("MCP URLs not configured in secrets - MCP integration disabled")
+                self._mcp_available = False
+        except Exception as e:
+            print(f"Could not load MCP credentials: {e}")
+            self._mcp_available = False
+
+        return self._mcp_available
+
+    def is_mcp_available(self) -> bool:
+        """Check if MCP integration is available"""
+        return self._init_credentials()
 
     def _get_bearer_token(self) -> str:
         """Get bearer token from Cognito with caching"""
+        if not self._init_credentials():
+            raise Exception("MCP not available - no URLs configured")
+
         current_time = time.time()
 
         if self._bearer_token and current_time < self._token_expires_at:
             return self._bearer_token
 
         try:
-            credentials = secrets_manager.get_mcp_credentials()
+            pool_id = self._credentials['MCP_COGNITO_POOL_ID']
+            region = self._credentials['MCP_COGNITO_REGION']
+            client_id = self._credentials['MCP_COGNITO_CLIENT_ID']
+            client_secret = self._credentials['MCP_COGNITO_CLIENT_SECRET']
 
-            pool_id = credentials['MCP_COGNITO_POOL_ID']
-            region = credentials['MCP_COGNITO_REGION']
-            client_id = credentials['MCP_COGNITO_CLIENT_ID']
-            client_secret = credentials['MCP_COGNITO_CLIENT_SECRET']
+            # Check if MCP_COGNITO_DOMAIN is configured, otherwise skip bearer token
+            cognito_domain = self._credentials.get('MCP_COGNITO_DOMAIN')
+            if not cognito_domain:
+                raise Exception("MCP_COGNITO_DOMAIN not configured in secrets")
 
-            domain = f"mcp-registry-{os.environ.get('AWS_ACCOUNT_ID', '')}-mcp-gateway-registry.auth.{region}.amazoncognito.com"
-            token_url = f"https://{domain}/oauth2/token"
+            token_url = f"https://{cognito_domain}/oauth2/token"
 
             print(f"Getting fresh MCP bearer token from {region}...")
 
@@ -349,28 +384,31 @@ def create_agent_with_memory(payload: dict) -> Tuple[Agent, Any, list, str]:
     except Exception as e:
         print(f"Could not configure memory: {e}")
 
-    # Collect available MCP clients
+    # Collect available MCP clients (only if MCP is configured)
     mcp_clients = []
 
-    try:
-        mcp_clients.append(('aws_docs', mcp_manager.create_aws_docs_client()))
-    except Exception as e:
-        print(f"AWS docs client unavailable: {e}")
+    if mcp_manager.is_mcp_available():
+        try:
+            mcp_clients.append(('aws_docs', mcp_manager.create_aws_docs_client()))
+        except Exception as e:
+            print(f"AWS docs client unavailable: {e}")
 
-    try:
-        mcp_clients.append(('dataproc', mcp_manager.create_dataproc_client()))
-    except Exception as e:
-        print(f"DataProcessing client unavailable: {e}")
+        try:
+            mcp_clients.append(('dataproc', mcp_manager.create_dataproc_client()))
+        except Exception as e:
+            print(f"DataProcessing client unavailable: {e}")
 
-    try:
-        mcp_clients.append(('rekognition', mcp_manager.create_rekognition_client()))
-    except Exception as e:
-        print(f"Rekognition client unavailable: {e}")
+        try:
+            mcp_clients.append(('rekognition', mcp_manager.create_rekognition_client()))
+        except Exception as e:
+            print(f"Rekognition client unavailable: {e}")
 
-    try:
-        mcp_clients.append(('nova_canvas', mcp_manager.create_nova_canvas_client()))
-    except Exception as e:
-        print(f"Nova Canvas client unavailable: {e}")
+        try:
+            mcp_clients.append(('nova_canvas', mcp_manager.create_nova_canvas_client()))
+        except Exception as e:
+            print(f"Nova Canvas client unavailable: {e}")
+    else:
+        print("MCP integration not configured - agent running without MCP tools")
 
     system_prompt = get_system_prompt(conversation_context)
 

@@ -85,42 +85,39 @@ class SecretsManager:
 
     def get_mcp_credentials(self) -> Dict[str, str]:
         """
-        Get MCP credentials from the standard ACME chatbot secret
+        Get MCP credentials from the standard ACME chatbot secret.
+        MCP configuration is optional - returns empty dict if secret doesn't exist.
 
         Returns:
-            Dictionary containing MCP configuration
+            Dictionary containing MCP configuration (may be empty)
         """
         try:
             credentials = self.get_secret(SECRET_NAME)
 
-            required_fields = [
+            # All fields are now optional - MCP integration is not required
+            optional_fields = [
                 'MCP_COGNITO_POOL_ID',
                 'MCP_COGNITO_REGION',
                 'MCP_COGNITO_CLIENT_ID',
                 'MCP_COGNITO_CLIENT_SECRET',
-            ]
-
-            optional_fields = [
+                'MCP_COGNITO_DOMAIN',
                 'MCP_DOCS_URL',
                 'MCP_DATAPROC_URL',
                 'MCP_REKOGNITION_URL',
                 'MCP_NOVA_CANVAS_URL',
             ]
 
-            missing_fields = [field for field in required_fields if field not in credentials]
-            if missing_fields:
-                raise Exception(f"Missing required fields in secret: {missing_fields}")
+            available_fields = [field for field in optional_fields if field in credentials and credentials[field]]
+            if available_fields:
+                print(f"MCP configuration available: {available_fields}")
+            else:
+                print("No MCP URLs configured in secret")
 
-            available_optional = [field for field in optional_fields if field in credentials and credentials[field]]
-            if available_optional:
-                print(f"Optional MCP services available: {available_optional}")
-
-            print(f"MCP credentials validated successfully")
             return credentials
 
         except Exception as e:
-            print(f"Could not retrieve MCP credentials: {e}")
-            raise
+            print(f"Could not retrieve MCP credentials: {e} - MCP integration disabled")
+            return {}
 
     def clear_cache(self, secret_name: Optional[str] = None):
         """Clear cached secrets"""
