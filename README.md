@@ -58,6 +58,33 @@ aws-agent-inter-operability-repo/
     └── ibc2025-mcp-data-generation-repo/       # Data processing MCP
 ```
 
+## Configuration
+
+Before deploying, you need to configure the following files with your own values:
+
+### Agent Stack Configuration
+
+| Template File | Local File (create) | Description |
+|---------------|---------------------|-------------|
+| `agent-stack/aws-mcp-server-agentcore/.env.template` | `.env.local` | Cognito credentials |
+| `agent-stack/backend/deployment/secrets.template.json` | `secrets.local.json` | MCP URLs and Cognito secrets |
+| `agent-stack/infrastructure/cognito/cognito_config.json` | `cognito_config.local.json` | Cognito user pool config |
+
+### Data Stack Configuration
+
+| File | Description |
+|------|-------------|
+| `data-stack/ibc2025-mcp-data-generation-repo/cdk/stacks/analytics_stack.py` | Set Redshift admin password |
+
+### Environment Variables
+
+Set these environment variables before running deployment scripts:
+
+```bash
+export COGNITO_ADMIN_PASSWORD="<your-secure-password>"
+export AWS_REGION="eu-central-1"
+```
+
 ## Quick Start
 
 ### Prerequisites

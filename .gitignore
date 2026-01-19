@@ -19,10 +19,10 @@ build/
 .env
 .env.local
 .env.*.local
+*.local.json
 *_secrets.json
-*secrets*.json
-cognito_config.json
-**/cognito_config.json
+!*.template.json
+!**/cognito_config.json
 
 # AWS
 .aws/

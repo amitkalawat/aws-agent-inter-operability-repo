@@ -125,7 +125,7 @@ def create_user_pool_client(cognito_client, user_pool_id, client_name="acme-corp
         raise
 
 
-def create_admin_user(cognito_client, user_pool_id, username="admin@acmecorp.com", temp_password="TempPass@123!"):
+def create_admin_user(cognito_client, user_pool_id, username=None, temp_password=None):
     """Create admin user"""
     print(f"Creating admin user: {username}")
     
@@ -162,8 +162,8 @@ def create_admin_user(cognito_client, user_pool_id, username="admin@acmecorp.com
         
         print(f"✅ Admin user created: {username}")
         
-        # Set permanent password
-        permanent_password = "Admin@123456!"
+        # Set permanent password - REPLACE WITH YOUR SECURE PASSWORD
+        permanent_password = os.environ.get('COGNITO_ADMIN_PASSWORD', '<SET_SECURE_PASSWORD>')
         cognito_client.admin_set_user_password(
             UserPoolId=user_pool_id,
             Username=username,

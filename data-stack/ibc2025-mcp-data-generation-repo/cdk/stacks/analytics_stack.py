@@ -134,7 +134,7 @@ class AnalyticsStack(Stack):
             namespace_name="acme-streaming-analytics",
             db_name="acme_analytics",
             admin_username="admin",
-            admin_user_password="AcmeTemp123!",  # Change this in production
+            admin_user_password="<SET_REDSHIFT_ADMIN_PASSWORD>",  # TODO: Use AWS Secrets Manager in production
             default_iam_role_arn=self.redshift_role.role_arn,
             iam_roles=[self.redshift_role.role_arn],
             tags=[
