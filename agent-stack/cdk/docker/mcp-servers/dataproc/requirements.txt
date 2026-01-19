@@ -1,5 +1,0 @@
-# Data Processing MCP Server Dependencies
-boto3>=1.38.0
-mcp[cli]>=1.11.0
-pydantic>=2.10.6
-httpx>=0.27.0

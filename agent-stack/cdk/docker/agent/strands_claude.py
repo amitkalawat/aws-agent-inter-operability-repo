@@ -31,6 +31,41 @@ AWS_REGION = os.environ.get('AWS_REGION', 'us-west-2')
 BEDROCK_MODEL_ID = os.environ.get('BEDROCK_MODEL_ID', 'anthropic.claude-haiku-4-5-20250414-v1:0')
 
 
+def get_mcp_endpoints_from_env() -> Dict[str, str]:
+    """
+    Get MCP endpoints from environment variables (set by CDK).
+    Converts ARNs to HTTP URLs for the AgentCore API.
+
+    CDK sets environment variables like:
+      MCP_SERVER_AWS_DOCS_MCP_ENDPOINT=arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/aws_docs_mcp-abc123
+
+    This function converts them to HTTP URLs:
+      https://bedrock-agentcore.us-west-2.amazonaws.com/runtimes/{encoded_arn}/invocations?qualifier=DEFAULT
+    """
+    endpoints = {}
+
+    # Mapping from internal URL keys to CDK environment variable names
+    env_mapping = {
+        'MCP_DOCS_URL': 'MCP_SERVER_AWS_DOCS_MCP_ENDPOINT',
+        'MCP_DATAPROC_URL': 'MCP_SERVER_DATAPROC_MCP_ENDPOINT',
+        'MCP_REKOGNITION_URL': 'MCP_SERVER_REKOGNITION_MCP_ENDPOINT',
+        'MCP_NOVA_CANVAS_URL': 'MCP_SERVER_NOVA_CANVAS_MCP_ENDPOINT',
+    }
+
+    region = os.environ.get('AWS_REGION', 'us-west-2')
+    base_url = f"https://bedrock-agentcore.{region}.amazonaws.com"
+
+    for url_key, env_key in env_mapping.items():
+        arn = os.environ.get(env_key)
+        if arn:
+            # Encode ARN for URL: colons -> %3A, slashes -> %2F
+            encoded_arn = arn.replace(':', '%3A').replace('/', '%2F')
+            endpoints[url_key] = f"{base_url}/runtimes/{encoded_arn}/invocations?qualifier=DEFAULT"
+            print(f"MCP endpoint {url_key}: configured from {env_key}")
+
+    return endpoints
+
+
 def extract_text_from_event(event) -> str:
     """Extract text content from Strands streaming event structure"""
     if not event:
@@ -91,19 +126,23 @@ class MCPManager:
             return self._mcp_available
 
         self._initialized = True
+
         try:
+            # Get MCP endpoints from environment variables (set by CDK)
+            self._endpoints = get_mcp_endpoints_from_env()
+
+            # Get Cognito credentials from secrets (for OAuth bearer token)
             self._credentials = secrets_manager.get_mcp_credentials()
-            # Check if any MCP URL is configured
-            mcp_urls = ['MCP_DOCS_URL', 'MCP_DATAPROC_URL', 'MCP_REKOGNITION_URL', 'MCP_NOVA_CANVAS_URL']
-            available_urls = [url for url in mcp_urls if self._credentials.get(url)]
-            if available_urls:
+
+            if self._endpoints:
                 self._mcp_available = True
-                print(f"MCP integration available with URLs: {available_urls}")
+                print(f"MCP integration available with endpoints: {list(self._endpoints.keys())}")
             else:
-                print("MCP URLs not configured in secrets - MCP integration disabled")
+                print("No MCP endpoints configured in environment variables")
                 self._mcp_available = False
+
         except Exception as e:
-            print(f"Could not load MCP credentials: {e}")
+            print(f"Could not initialize MCP: {e}")
             self._mcp_available = False
 
         return self._mcp_available
@@ -144,7 +183,7 @@ class MCPManager:
                     'grant_type': 'client_credentials',
                     'client_id': client_id,
                     'client_secret': client_secret,
-                    'scope': 'mcp-registry/read mcp-registry/write'
+                    'scope': 'mcp/invoke'
                 },
                 timeout=10
             )
@@ -165,16 +204,21 @@ class MCPManager:
     def create_mcp_transport(self, url_key: str):
         """Create MCP transport for a given URL key"""
         try:
-            credentials = secrets_manager.get_mcp_credentials()
+            # Use endpoint from environment variables (not secrets)
+            if not hasattr(self, '_endpoints') or url_key not in self._endpoints:
+                raise Exception(f"{url_key} not configured in environment")
+
+            mcp_url = self._endpoints[url_key]
             bearer_token = self._get_bearer_token()
+            # Headers per AWS documentation: lowercase 'authorization', Content-Type required
+            headers = {
+                "authorization": f"Bearer {bearer_token}",
+                "Content-Type": "application/json",
+                "Accept": "application/json, text/event-stream"
+            }
 
-            if url_key not in credentials or not credentials[url_key]:
-                raise Exception(f"{url_key} not configured in secrets")
-
-            mcp_url = credentials[url_key]
-            headers = {"Authorization": f"Bearer {bearer_token}"}
-
-            return streamablehttp_client(mcp_url, headers=headers)
+            print(f"Creating MCP transport for {url_key}: {mcp_url[:100]}...")
+            return streamablehttp_client(mcp_url, headers=headers, timeout=120, terminate_on_close=False)
         except Exception as e:
             print(f"Failed to create MCP transport for {url_key}: {e}")
             raise

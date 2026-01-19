@@ -27,6 +27,7 @@ export class CognitoConstruct extends Construct {
   public readonly frontendClient: IUserPoolClient;
   public readonly mcpClient: IUserPoolClient;
   public readonly discoveryUrl: string;
+  public readonly cognitoDomain: string;
 
   constructor(scope: Construct, id: string, props?: CognitoConstructProps) {
     super(scope, id);
@@ -105,11 +106,15 @@ export class CognitoConstruct extends Construct {
     });
 
     // Add a domain for OAuth flows (required for client credentials)
+    const domainPrefix = `${Config.naming.projectPrefix}-agentcore`;
     const userPoolDomain = (this.userPool as UserPool).addDomain('Domain', {
       cognitoDomain: {
-        domainPrefix: `${Config.naming.projectPrefix}-agentcore`,
+        domainPrefix: domainPrefix,
       },
     });
+
+    // Set the full domain for OAuth token requests
+    this.cognitoDomain = `${domainPrefix}.auth.${Config.aws.region}.amazoncognito.com`;
 
     // Create Resource Server for MCP scopes
     const mcpResourceServer = (this.userPool as UserPool).addResourceServer('McpResourceServer', {

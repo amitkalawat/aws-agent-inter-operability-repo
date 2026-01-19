@@ -7,6 +7,7 @@ import { Config } from '../config';
 export interface SecretsConstructProps {
   readonly userPool: IUserPool;
   readonly mcpClient: IUserPoolClient;
+  readonly cognitoDomain: string;
   readonly removalPolicy?: RemovalPolicy;
 }
 
@@ -29,6 +30,7 @@ export class SecretsConstruct extends Construct {
           MCP_COGNITO_POOL_ID: props.userPool.userPoolId,
           MCP_COGNITO_REGION: Config.aws.region,
           MCP_COGNITO_CLIENT_ID: props.mcpClient.userPoolClientId,
+          MCP_COGNITO_DOMAIN: props.cognitoDomain,
         }),
         generateStringKey: 'MCP_COGNITO_CLIENT_SECRET',
       },

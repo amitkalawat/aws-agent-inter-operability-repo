@@ -12,34 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# dependabot should continue to update this to the latest hash.
-FROM public.ecr.aws/docker/library/python:3.13.5-alpine3.21@sha256:c9a09c45a4bcc618c7f7128585b8dd0d41d0c31a8a107db4c8255ffe0b69375d AS uv
+# Amazon Rekognition MCP Server for AgentCore Runtime
+# Simplified build without BuildKit cache mounts for CDK compatibility
 
-# Install the project into `/app`
-WORKDIR /app
+FROM public.ecr.aws/docker/library/python:3.13-alpine AS builder
 
-# Enable bytecode compilation
-ENV UV_COMPILE_BYTECODE=1
-
-# Copy from the cache instead of linking since it's a mounted volume
-ENV UV_LINK_MODE=copy
-
-# Prefer the system python
-ENV UV_PYTHON_PREFERENCE=only-system
-
-# Run without updating the uv.lock file like running with `--frozen`
-ENV UV_FROZEN=true
-
-# Copy the required files first
-COPY pyproject.toml uv.lock uv-requirements.txt ./
-
-# Python optimization and uv configuration
-ENV PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
-
-# Install system dependencies and Python package manager
-RUN apk update && \
-    apk add --no-cache --virtual .build-deps \
+# Install build dependencies
+RUN apk add --no-cache \
     build-base \
     gcc \
     musl-dev \
@@ -47,42 +26,85 @@ RUN apk update && \
     openssl-dev \
     cargo
 
-# Install the project's dependencies using the lockfile and settings
-RUN --mount=type=cache,target=/root/.cache/uv \
-    pip install --require-hashes --requirement uv-requirements.txt --no-cache-dir && \
-    uv sync --python 3.13 --frozen --no-install-project --no-dev --no-editable
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-# Then, add the rest of the project source code and install it
-# Installing separately from its dependencies allows optimal layer caching
-COPY . /app
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --python 3.13 --frozen --no-dev --no-editable
+WORKDIR /app
 
-# Make the directory just in case it doesn't exist
-RUN mkdir -p /root/.local
+# Copy all source files
+COPY pyproject.toml README.md .
+COPY awslabs/ ./awslabs/
 
-FROM public.ecr.aws/docker/library/python:3.13.5-alpine3.21@sha256:c9a09c45a4bcc618c7f7128585b8dd0d41d0c31a8a107db4c8255ffe0b69375d
+# Create virtual environment and install the package
+RUN uv venv /app/.venv && \
+    . /app/.venv/bin/activate && \
+    uv pip install --compile-bytecode .
 
-# Place executables in the environment at the front of the path and include other binaries
+# Runtime stage
+FROM public.ecr.aws/docker/library/python:3.13-alpine
+
+# Install runtime dependencies (procps needed for pgrep in healthcheck)
+RUN apk add --no-cache ca-certificates procps && \
+    addgroup -g 1000 app && \
+    adduser -u 1000 -G app -s /bin/sh -D app
+
+WORKDIR /app
+
+# Copy virtual environment with installed package
+COPY --from=builder --chown=app:app /app/.venv /app/.venv
+
+# Copy health check
+COPY --chown=app:app docker-healthcheck.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-healthcheck.sh
+
+# Create AgentCore wrapper script that properly configures FastMCP for HTTP mode
+RUN cat > /app/start_server.py << 'WRAPPER_EOF'
+#!/usr/bin/env python3
+"""
+AgentCore wrapper for Amazon Rekognition MCP Server.
+Configures FastMCP for stateless HTTP mode required by AgentCore.
+"""
+import os
+import sys
+
+# Set up logging
+os.environ.setdefault('FASTMCP_LOG_LEVEL', 'INFO')
+
+def main():
+    from awslabs.amazon_rekognition_mcp_server.server import mcp
+
+    # Configure for AgentCore: bind to 0.0.0.0, enable stateless HTTP mode
+    mcp.settings.host = '0.0.0.0'
+    mcp.settings.port = 8000
+    mcp.settings.stateless_http = True
+
+    # Disable transport security for AgentCore (it handles security at the gateway)
+    if hasattr(mcp, '_transport_security'):
+        mcp._transport_security = None
+    if hasattr(mcp.settings, 'transport_security'):
+        mcp.settings.transport_security = None
+
+    print("Starting Amazon Rekognition MCP Server", file=sys.stderr)
+    print("Binding to 0.0.0.0:8000/mcp in stateless HTTP mode", file=sys.stderr)
+
+    # Run with streamable-http transport for AgentCore
+    mcp.run(transport='streamable-http')
+
+if __name__ == '__main__':
+    main()
+WRAPPER_EOF
+
+RUN chmod +x /app/start_server.py && chown app:app /app/start_server.py
+
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1
 
-# Install runtime dependencies and create application user
-RUN apk update && \
-    apk add --no-cache ca-certificates && \
-    update-ca-certificates && \
-    addgroup -S app && \
-    adduser -S app -G app -h /app
-
-# Copy application artifacts from build stage
-COPY --from=uv --chown=app:app /app/.venv /app/.venv
-
-# Get healthcheck script
-COPY ./docker-healthcheck.sh /usr/local/bin/docker-healthcheck.sh
-
-# Run as non-root
 USER app
 
-# When running the container, add --db-path and a bind mount to the host's db file
-HEALTHCHECK --interval=60s --timeout=10s --start-period=10s --retries=3 CMD ["docker-healthcheck.sh"]
-ENTRYPOINT ["awslabs.amazon-rekognition-mcp-server"]
+HEALTHCHECK --interval=60s --timeout=10s --start-period=10s --retries=3 \
+    CMD ["docker-healthcheck.sh"]
+
+EXPOSE 8000
+
+# Use the wrapper script that configures FastMCP for AgentCore
+ENTRYPOINT ["python", "/app/start_server.py"]

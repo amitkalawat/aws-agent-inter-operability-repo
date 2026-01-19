@@ -4,8 +4,14 @@ venv/
 .venv/
 env/
 ENV/
+*-env/
+test-env/
+test_env/
 __pycache__/
 *.py[cod]
+
+# Claude Code settings
+.claude/
 
 # Build outputs
 cdk.out/

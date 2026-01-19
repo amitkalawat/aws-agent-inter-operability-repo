@@ -68,6 +68,7 @@ export class AcmeAgentCoreStack extends Stack {
     const secrets = new SecretsConstruct(this, 'Secrets', {
       userPool: auth.userPool,
       mcpClient: auth.mcpClient,
+      cognitoDomain: auth.cognitoDomain,
       removalPolicy,
     });
 

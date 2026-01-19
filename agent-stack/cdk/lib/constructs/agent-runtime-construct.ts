@@ -136,6 +136,21 @@ export class AgentRuntimeConstruct extends Construct {
       })
     );
 
+    // Grant Code Interpreter permissions
+    this.runtime.addToRolePolicy(
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: [
+          'bedrock-agentcore:StartCodeInterpreterSession',
+          'bedrock-agentcore:InvokeCodeInterpreterSession',
+          'bedrock-agentcore:EndCodeInterpreterSession',
+        ],
+        resources: [
+          `arn:aws:bedrock-agentcore:${Config.aws.region}:aws:code-interpreter/*`,
+        ],
+      })
+    );
+
     // Outputs
     new CfnOutput(this, 'AgentRuntimeArn', {
       value: this.runtime.agentRuntimeArn,
