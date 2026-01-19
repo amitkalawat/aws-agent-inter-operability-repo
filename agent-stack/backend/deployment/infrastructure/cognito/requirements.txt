@@ -1,0 +1,4 @@
+boto3>=1.40.0
+warrant>=0.6.1
+PyJWT>=2.8.0
+python-jose>=3.3.0

@@ -1,0 +1,54 @@
+# Dependencies
+node_modules/
+venv/
+.venv/
+env/
+ENV/
+__pycache__/
+*.py[cod]
+
+# Build outputs
+cdk.out/
+dist/
+build/
+*.js
+*.d.ts
+!jest.config.js
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+*_secrets.json
+*secrets*.json
+cognito_config.json
+**/cognito_config.json
+
+# AWS
+.aws/
+*.pem
+*.key
+
+# Deployment artifacts
+deployment_info*.json
+.bedrock_agentcore.yaml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Test outputs
+coverage/
+.nyc_output/
+*.lcov
