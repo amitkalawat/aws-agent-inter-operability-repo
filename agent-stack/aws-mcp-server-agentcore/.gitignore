@@ -31,10 +31,13 @@ MANIFEST
 .ipynb_checkpoints/
 */.ipynb_checkpoints/*
 
-# Docker files
-Dockerfile
-Dockerfile.*
-.dockerignore
+# Docker files (ignored at root level, but allowed in subdirectories)
+/Dockerfile
+/Dockerfile.*
+/.dockerignore
+# Allow Dockerfiles in MCP server subdirectories
+!*/Dockerfile
+!*/.dockerignore
 
 # AgentCore generated configuration files
 .bedrock_agentcore.yaml
