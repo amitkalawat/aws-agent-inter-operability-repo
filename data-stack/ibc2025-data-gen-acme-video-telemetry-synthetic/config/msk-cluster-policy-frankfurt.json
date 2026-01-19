@@ -1,0 +1,27 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {
+      "Service": "firehose.amazonaws.com"
+    },
+    "Action": [
+      "kafka:CreateVpcConnection",
+      "kafka:GetBootstrapBrokers",
+      "kafka:DescribeCluster",
+      "kafka:DescribeClusterV2",
+      "kafka-cluster:Connect",
+      "kafka-cluster:DescribeCluster",
+      "kafka-cluster:ReadData",
+      "kafka-cluster:DescribeGroup",
+      "kafka-cluster:AlterGroup",
+      "kafka-cluster:DescribeTopic"
+    ],
+    "Resource": "*",
+    "Condition": {
+      "StringEquals": {
+        "aws:SourceAccount": "241533163649"
+      }
+    }
+  }]
+}

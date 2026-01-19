@@ -1,0 +1,11 @@
+{
+  "name": "msk-consumer",
+  "version": "1.0.0",
+  "description": "MSK consumer Lambda handler",
+  "main": "consumer.js",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.x",
+    "@aws-sdk/lib-dynamodb": "^3.x",
+    "@aws-sdk/client-apigatewaymanagementapi": "^3.x"
+  }
+}

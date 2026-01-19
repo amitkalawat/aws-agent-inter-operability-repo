@@ -1,0 +1,360 @@
+/* ACME Chat Theme - CSS Variables */
+:root {
+  /* Background Colors */
+  --bg-primary: #0a0a0a;           /* Main background - deep black */
+  --bg-secondary: #1a1a1a;         /* Card/container backgrounds */
+  --bg-tertiary: #2a2a2a;          /* Input fields, secondary elements */
+  --bg-quaternary: #3a3a3a;        /* Hover states, code blocks */
+
+  /* Accent Colors */
+  --accent-primary: #00ff00;       /* Main brand green - bright lime */
+  --accent-secondary: #00ff88;     /* Lighter green for subtitles/labels */
+  --accent-tertiary: #22d3ee;      /* Cyan for streaming indicators */
+
+  /* Text Colors */
+  --text-primary: #ffffff;         /* Primary text - pure white */
+  --text-secondary: #cccccc;       /* Secondary text - light gray */
+  --text-tertiary: #888888;       /* Muted text - medium gray */
+  --text-quaternary: #718096;      /* Subtle text - darker gray */
+
+  /* Border Colors */
+  --border-primary: #00ff00;       /* Accent borders */
+  --border-secondary: #444444;     /* Subtle borders */
+  --border-tertiary: #666666;      /* Lighter borders */
+
+  /* Status Colors */
+  --success: #00ff00;              /* Success/connected state */
+  --warning: #ffff00;              /* Warning/testing state */
+  --error: #ff6666;                /* Error/danger state */
+  --info: #4a4aff;                 /* Info/user message state */
+
+  /* Typography */
+  --font-family-mono: 'Consolas', 'Monaco', 'Courier New', monospace;
+  --font-size-xs: 0.7rem;
+  --font-size-sm: 0.8rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.2rem;
+  --font-size-xl: 1.5rem;
+  --font-size-2xl: 1.8rem;
+
+  /* Spacing */
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+  --space-2xl: 2.5rem;
+
+  /* Radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  /* Effects */
+  --shadow-glow-green: 0 0 10px rgba(0, 255, 0, 0.3);
+  --shadow-glow-green-strong: 0 0 20px rgba(0, 255, 0, 0.5);
+  --transition-fast: all 0.2s;
+}
+
+/* Reset */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-family-mono);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+}
+
+code {
+  font-family: var(--font-family-mono);
+}
+
+/* Selection */
+::selection {
+  background: var(--accent-primary);
+  color: var(--bg-primary);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-secondary);
+  border-radius: var(--radius-sm);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-primary);
+}
+
+/* ========================================
+   AMPLIFY AUTHENTICATOR THEME OVERRIDES
+   Matrix/Cyberpunk Login Page Styling
+   ======================================== */
+
+/* Login Page Background */
+[data-amplify-authenticator] {
+  background: linear-gradient(rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.8)), 
+              url('https://d22um2piuwyb63.cloudfront.net/aurora-bg.jpg');
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xl);
+  position: relative;
+}
+
+/* Login Page Title */
+[data-amplify-authenticator]::before {
+  content: "🎥 Video Telemetry Dashboard";
+  position: absolute;
+  top: var(--space-2xl);
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+  color: var(--accent-primary);
+  text-shadow: var(--shadow-glow-green);
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+  z-index: 1000;
+}
+
+/* Main Login Container */
+[data-amplify-authenticator] [data-amplify-container] {
+  background: var(--bg-secondary) !important;
+  border: 2px solid var(--border-primary) !important;
+  border-radius: var(--radius-xl) !important;
+  box-shadow: var(--shadow-glow-green), 
+              0 0 40px rgba(0, 255, 0, 0.1) !important;
+  padding: var(--space-2xl) !important;
+  max-width: 400px !important;
+  width: 100% !important;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Glowing top border effect */
+[data-amplify-authenticator] [data-amplify-container]::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, 
+    var(--accent-primary) 0%, 
+    var(--accent-secondary) 50%, 
+    var(--accent-primary) 100%);
+  animation: pulseGlow 2s ease-in-out infinite alternate;
+}
+
+@keyframes pulseGlow {
+  0% { opacity: 0.8; }
+  100% { opacity: 1; }
+}
+
+/* Login Header/Title */
+[data-amplify-authenticator] [data-amplify-heading] {
+  color: var(--accent-primary) !important;
+  font-family: var(--font-family-mono) !important;
+  font-size: var(--font-size-2xl) !important;
+  font-weight: 700 !important;
+  text-align: center !important;
+  text-shadow: var(--shadow-glow-green) !important;
+  margin-bottom: var(--space-xl) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.1em !important;
+}
+
+/* Form Fields */
+[data-amplify-authenticator] [data-amplify-input],
+[data-amplify-authenticator] [data-amplify-select] {
+  background: var(--bg-tertiary) !important;
+  border: 2px solid var(--border-secondary) !important;
+  border-radius: var(--radius-md) !important;
+  color: var(--text-primary) !important;
+  font-family: var(--font-family-mono) !important;
+  font-size: var(--font-size-base) !important;
+  padding: var(--space-md) !important;
+  transition: var(--transition-fast) !important;
+  margin-bottom: var(--space-md) !important;
+}
+
+[data-amplify-authenticator] [data-amplify-input]:focus,
+[data-amplify-authenticator] [data-amplify-select]:focus {
+  border-color: var(--accent-primary) !important;
+  box-shadow: var(--shadow-glow-green) !important;
+  outline: none !important;
+}
+
+/* Field Labels */
+[data-amplify-authenticator] [data-amplify-label] {
+  color: var(--text-secondary) !important;
+  font-family: var(--font-family-mono) !important;
+  font-size: var(--font-size-sm) !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  margin-bottom: var(--space-xs) !important;
+}
+
+/* Primary Buttons (Sign In, etc.) */
+[data-amplify-authenticator] [data-amplify-button][data-variation="primary"] {
+  background: transparent !important;
+  border: 2px solid var(--accent-primary) !important;
+  border-radius: var(--radius-md) !important;
+  color: var(--accent-primary) !important;
+  font-family: var(--font-family-mono) !important;
+  font-size: var(--font-size-base) !important;
+  font-weight: 700 !important;
+  padding: var(--space-md) var(--space-xl) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  transition: var(--transition-fast) !important;
+  cursor: pointer !important;
+  width: 100% !important;
+  margin: var(--space-lg) 0 !important;
+}
+
+[data-amplify-authenticator] [data-amplify-button][data-variation="primary"]:hover:not(:disabled) {
+  background: var(--accent-primary) !important;
+  color: var(--bg-primary) !important;
+  transform: translateY(-2px) !important;
+  box-shadow: var(--shadow-glow-green-strong) !important;
+}
+
+[data-amplify-authenticator] [data-amplify-button][data-variation="primary"]:disabled {
+  opacity: 0.5 !important;
+  cursor: not-allowed !important;
+}
+
+/* Secondary Buttons */
+[data-amplify-authenticator] [data-amplify-button][data-variation="link"] {
+  color: var(--text-tertiary) !important;
+  font-family: var(--font-family-mono) !important;
+  font-size: var(--font-size-sm) !important;
+  text-decoration: none !important;
+  transition: var(--transition-fast) !important;
+  border: none !important;
+  background: transparent !important;
+  padding: var(--space-sm) !important;
+}
+
+[data-amplify-authenticator] [data-amplify-button][data-variation="link"]:hover {
+  color: var(--accent-secondary) !important;
+  text-shadow: 0 0 5px rgba(0, 255, 136, 0.5) !important;
+}
+
+/* Error Messages */
+[data-amplify-authenticator] [data-amplify-alert] {
+  background: rgba(255, 102, 102, 0.1) !important;
+  border: 1px solid var(--error) !important;
+  border-radius: var(--radius-md) !important;
+  color: var(--error) !important;
+  font-family: var(--font-family-mono) !important;
+  font-size: var(--font-size-sm) !important;
+  padding: var(--space-md) !important;
+  margin-bottom: var(--space-md) !important;
+}
+
+/* Loading Spinner */
+[data-amplify-authenticator] [data-amplify-loader] {
+  border: 4px solid rgba(0, 255, 0, 0.3) !important;
+  border-left: 4px solid var(--accent-primary) !important;
+  border-radius: 50% !important;
+  animation: spin 1s linear infinite !important;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Tabs (Sign In / Create Account) */
+[data-amplify-authenticator] [data-amplify-tabs] [data-amplify-tab] {
+  background: transparent !important;
+  border: none !important;
+  color: var(--text-tertiary) !important;
+  font-family: var(--font-family-mono) !important;
+  font-size: var(--font-size-sm) !important;
+  font-weight: 600 !important;
+  padding: var(--space-sm) var(--space-md) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  transition: var(--transition-fast) !important;
+  cursor: pointer !important;
+}
+
+[data-amplify-authenticator] [data-amplify-tabs] [data-amplify-tab][data-state="active"] {
+  color: var(--accent-primary) !important;
+  border-bottom: 2px solid var(--accent-primary) !important;
+  text-shadow: var(--shadow-glow-green) !important;
+}
+
+[data-amplify-authenticator] [data-amplify-tabs] [data-amplify-tab]:hover {
+  color: var(--accent-secondary) !important;
+}
+
+/* Form Container */
+[data-amplify-authenticator] [data-amplify-form] {
+  width: 100% !important;
+}
+
+/* Fieldset Styling */
+[data-amplify-authenticator] fieldset {
+  border: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+/* Additional Matrix Effects */
+[data-amplify-authenticator] [data-amplify-container]::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  background: linear-gradient(45deg, 
+    transparent 30%, 
+    rgba(0, 255, 0, 0.1) 50%, 
+    transparent 70%);
+  border-radius: var(--radius-xl);
+  opacity: 0;
+  transition: var(--transition-fast);
+  pointer-events: none;
+  z-index: -1;
+}
+
+[data-amplify-authenticator] [data-amplify-container]:hover::after {
+  opacity: 1;
+  animation: scanLine 2s ease-in-out infinite;
+}
+
+@keyframes scanLine {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
