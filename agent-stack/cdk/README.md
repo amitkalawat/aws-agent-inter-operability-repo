@@ -343,6 +343,31 @@ cd ../frontend/acme-chat && npm run build
 - Ensure IAM user/role has sufficient permissions
 - Check CloudWatch Logs for detailed error messages
 
+**Cognito Authentication: "Incorrect username or password" Error**
+
+When using admin-created users (via `admin-create-user` and `admin-set-user-password`), the default SRP (Secure Remote Password) authentication flow may not work correctly. This is because admin-created users don't have SRP verifiers properly initialized.
+
+**Solution:** Configure the frontend to use `USER_PASSWORD_AUTH` flow instead of SRP:
+
+```typescript
+// In AuthService.ts, before calling authenticateUser:
+cognitoUser.setAuthenticationFlowType('USER_PASSWORD_AUTH');
+```
+
+**Requirements:**
+1. The Cognito App Client must have `ALLOW_USER_PASSWORD_AUTH` enabled (configured in CDK)
+2. The frontend AuthService must set the authentication flow type before authenticating
+
+**Verifying the fix:**
+```bash
+# Test authentication via AWS CLI (should return tokens)
+aws cognito-idp initiate-auth \
+  --client-id <ClientId> \
+  --auth-flow USER_PASSWORD_AUTH \
+  --auth-parameters USERNAME=admin@acme.com,PASSWORD='YourPassword!' \
+  --region us-west-2
+```
+
 ### Debug Mode
 
 Set `developmentMode: true` in `bin/app.ts` for:

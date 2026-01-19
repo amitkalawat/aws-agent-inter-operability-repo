@@ -2,34 +2,27 @@
 export const config = {
   // AWS Cognito Configuration
   cognito: {
-    userPoolId: 'eu-central-1_CF2vh6s7M',
-    appClientId: '3cbhcr57gvuh4ffnv6sqlha5eo',
-    region: 'eu-central-1',
-    discoveryUrl: 'https://cognito-idp.eu-central-1.amazonaws.com/eu-central-1_CF2vh6s7M/.well-known/openid-configuration'
+    userPoolId: 'us-west-2_5j3rJtNHl',
+    appClientId: '455f6cimejtaihn6g7ro9auak6',
+    region: 'us-west-2',
+    discoveryUrl: 'https://cognito-idp.us-west-2.amazonaws.com/us-west-2_5j3rJtNHl/.well-known/openid-configuration'
   },
-  
+
   // AgentCore Configuration
   agentcore: {
-    agentArn: 'arn:aws:bedrock-agentcore:eu-central-1:241533163649:runtime/acme_chatbot_v2-rHZRzmFJCM',
-    region: 'eu-central-1',
-    endpoint: 'https://bedrock-agentcore.eu-central-1.amazonaws.com'
+    agentArn: 'arn:aws:bedrock-agentcore:us-west-2:878687028155:runtime/acme_chatbot-RB6voZDbJ7',
+    region: 'us-west-2',
+    endpoint: 'https://bedrock-agentcore.us-west-2.amazonaws.com'
   },
-  
+
   // Demo User Credentials (for testing)
   demo: {
-    username: 'admin@acmecorp.com',
-    password: 'Admin@123456!'
+    username: 'admin@acme.com',
+    password: 'Test1234!'
   },
-  
-  // Additional User Credentials
-  demo2: {
-    username: 'admin2@acmecorp.com',
-    password: 'AdminPassword123!'
-  },
-  
+
   // Username mappings for simple login
   userMappings: {
-    'admin': 'admin2@acmecorp.com',
-    'admin1': 'admin@acmecorp.com'
+    'admin': 'admin@acme.com'
   } as Record<string, string>
 };

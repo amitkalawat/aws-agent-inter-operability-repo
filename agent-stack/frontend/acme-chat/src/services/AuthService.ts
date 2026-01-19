@@ -69,6 +69,9 @@ class AuthService {
         Pool: this.userPool,
       });
 
+      // Use USER_PASSWORD_AUTH flow instead of SRP (SRP doesn't work with admin-created users)
+      cognitoUser.setAuthenticationFlowType('USER_PASSWORD_AUTH');
+
       cognitoUser.authenticateUser(authenticationDetails, {
         onSuccess: (session: CognitoUserSession) => {
           const accessToken = session.getAccessToken().getJwtToken();
