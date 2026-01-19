@@ -140,9 +140,9 @@ aws cognito-idp admin-create-user \
 
 **Note:** Users will be prompted to change their password on first login (status: `FORCE_CHANGE_PASSWORD`).
 
-### 6. (Optional) Set Permanent Password
+### 6. Set Permanent Password
 
-To skip the password change prompt, set a permanent password:
+Set a permanent password to skip the password change prompt on first login:
 
 ```bash
 aws cognito-idp admin-set-user-password \
@@ -153,7 +153,24 @@ aws cognito-idp admin-set-user-password \
   --region us-west-2
 ```
 
-### 7. Update Frontend Configuration
+This changes the user status from `FORCE_CHANGE_PASSWORD` to `CONFIRMED`.
+
+### 7. Verify User Status
+
+Confirm the user is ready to login:
+
+```bash
+aws cognito-idp admin-get-user \
+  --user-pool-id <CognitoUserPoolId> \
+  --username admin@acme.com \
+  --region us-west-2 \
+  --query 'UserStatus' \
+  --output text
+
+# Expected output: CONFIRMED
+```
+
+### 8. Update Frontend Configuration
 
 After deployment, update the frontend configuration with the stack outputs (see [Frontend Configuration](#frontend-configuration) section below).
 
