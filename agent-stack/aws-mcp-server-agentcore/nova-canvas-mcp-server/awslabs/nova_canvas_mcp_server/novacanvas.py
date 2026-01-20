@@ -19,9 +19,11 @@ and image saving functionality.
 """
 
 import base64
+import boto3
 import json
 import os
 import random
+import uuid
 from .models import (
     ColorGuidedGenerationParams,
     ColorGuidedRequest,
@@ -56,8 +58,10 @@ def save_generated_images(
     number_of_images: int = DEFAULT_NUMBER_OF_IMAGES,
     prefix: str = 'nova_canvas',
     workspace_dir: Optional[str] = None,
+    s3_bucket: Optional[str] = None,
+    s3_region: Optional[str] = None,
 ) -> Dict[str, List]:
-    """Save base64-encoded images to files.
+    """Save base64-encoded images to files or S3.
 
     Args:
         base64_images: List of base64-encoded image data.
@@ -65,11 +69,63 @@ def save_generated_images(
         number_of_images: Number of images being saved.
         prefix: Prefix to use for randomly generated filenames.
         workspace_dir: Directory where the images should be saved. If None, uses current directory.
+        s3_bucket: S3 bucket name for uploading images. If provided, uploads to S3 and returns presigned URLs.
+        s3_region: AWS region for S3 bucket. Required for proper presigned URL generation.
 
     Returns:
-        Dictionary with lists of paths to the saved image files and PIL Image objects.
+        Dictionary with lists of paths/URLs to the saved image files.
     """
     logger.debug(f'Saving {len(base64_images)} images')
+
+    # If S3 bucket configured, upload and return presigned URLs
+    if s3_bucket:
+        logger.info(f'Uploading images to S3 bucket: {s3_bucket} in region: {s3_region}')
+        # Create S3 client with explicit region, regional endpoint, and signature version v4
+        from botocore.config import Config as BotoConfig
+        s3_config = BotoConfig(
+            signature_version='s3v4',
+            s3={'addressing_style': 'virtual'},
+        )
+        # Use regional endpoint for proper presigned URL generation
+        s3_endpoint = f'https://s3.{s3_region}.amazonaws.com' if s3_region else None
+        s3_client = boto3.client('s3', region_name=s3_region, endpoint_url=s3_endpoint, config=s3_config)
+        presigned_urls: List[str] = []
+
+        for i, base64_image_data in enumerate(base64_images):
+            # Decode the base64 image data
+            image_data = base64.b64decode(base64_image_data)
+
+            # Generate unique S3 key
+            unique_id = str(uuid.uuid4())
+            s3_key = f'generated/{prefix}_{unique_id}.png'
+
+            # Upload to S3
+            s3_client.put_object(
+                Bucket=s3_bucket,
+                Key=s3_key,
+                Body=image_data,
+                ContentType='image/png',
+            )
+            logger.debug(f'Uploaded image to s3://{s3_bucket}/{s3_key}')
+
+            # Generate presigned URL (valid for 24 hours)
+            url = s3_client.generate_presigned_url(
+                'get_object',
+                Params={'Bucket': s3_bucket, 'Key': s3_key},
+                ExpiresIn=86400,  # 24 hours
+            )
+            # Log URL with signature params visible (truncate middle, keep start and query params)
+            if '?' in url:
+                base_url, params = url.split('?', 1)
+                logger.info(f'Generated presigned URL: {base_url[:80]}...?{params[:50]}...')
+            else:
+                logger.warning(f'Presigned URL missing signature params: {url[:150]}')
+            presigned_urls.append(url)
+
+        logger.info(f'Successfully uploaded {len(presigned_urls)} images to S3')
+        return {'paths': presigned_urls}
+
+    # Fallback to local file saving (for IDE use)
     # Determine the output directory
     if workspace_dir:
         output_dir = os.path.join(workspace_dir, DEFAULT_OUTPUT_DIR)
@@ -154,6 +210,8 @@ async def generate_image_with_text(
     seed: Optional[int] = None,
     number_of_images: int = DEFAULT_NUMBER_OF_IMAGES,
     workspace_dir: Optional[str] = None,
+    s3_bucket: Optional[str] = None,
+    s3_region: Optional[str] = None,
 ) -> ImageGenerationResponse:
     """Generate an image using Amazon Nova Canvas with text prompt.
 
@@ -173,10 +231,12 @@ async def generate_image_with_text(
         seed: Seed for generation (0-858,993,459). Random if not provided.
         number_of_images: The number of images to generate (1-5).
         workspace_dir: Directory where the images should be saved. If None, uses current directory.
+        s3_bucket: S3 bucket name for uploading images. If provided, uploads to S3 and returns presigned URLs.
+        s3_region: AWS region for S3 bucket. Required for proper presigned URL generation.
 
     Returns:
-        ImageGenerationResponse: An object containing the paths to the generated images,
-        PIL Image objects, and status information.
+        ImageGenerationResponse: An object containing the paths/URLs to the generated images
+        and status information.
     """
     logger.debug(f"Generating text-to-image with prompt: '{prompt[:30]}...' ({width}x{height})")
 
@@ -237,6 +297,8 @@ async def generate_image_with_text(
                 number_of_images,
                 prefix='nova_canvas',
                 workspace_dir=workspace_dir,
+                s3_bucket=s3_bucket,
+                s3_region=s3_region,
             )
 
             logger.info(f'Successfully generated {len(result["paths"])} image(s)')
@@ -281,6 +343,8 @@ async def generate_image_with_colors(
     seed: Optional[int] = None,
     number_of_images: int = DEFAULT_NUMBER_OF_IMAGES,
     workspace_dir: Optional[str] = None,
+    s3_bucket: Optional[str] = None,
+    s3_region: Optional[str] = None,
 ) -> ImageGenerationResponse:
     """Generate an image using Amazon Nova Canvas with color guidance.
 
@@ -301,10 +365,12 @@ async def generate_image_with_colors(
         seed: Seed for generation (0-858,993,459). Random if not provided.
         number_of_images: The number of images to generate (1-5).
         workspace_dir: Directory where the images should be saved. If None, uses current directory.
+        s3_bucket: S3 bucket name for uploading images. If provided, uploads to S3 and returns presigned URLs.
+        s3_region: AWS region for S3 bucket. Required for proper presigned URL generation.
 
     Returns:
-        ImageGenerationResponse: An object containing the paths to the generated images,
-        PIL Image objects, and status information.
+        ImageGenerationResponse: An object containing the paths/URLs to the generated images
+        and status information.
     """
     logger.debug(
         f"Generating color-guided image with prompt: '{prompt[:30]}...' and {len(colors)} colors"
@@ -375,6 +441,8 @@ async def generate_image_with_colors(
                 number_of_images,
                 prefix='nova_canvas_color',
                 workspace_dir=workspace_dir,
+                s3_bucket=s3_bucket,
+                s3_region=s3_region,
             )
 
             logger.info(f'Successfully generated {len(result["paths"])} color-guided image(s)')

@@ -270,20 +270,24 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ user }) => {
   // Function to detect and extract image URLs from text
   const detectImageUrls = (text: string): string[] => {
     const imageUrls: string[] = [];
-    
-    // S3 presigned URLs
-    const s3Pattern = /https:\/\/[^\s]+\.s3\.[^\s]+\.amazonaws\.com\/[^\s]+/g;
+
+    // S3 presigned URLs - must have complete signature to avoid 403 errors
+    const s3Pattern = /https:\/\/[^\s\[\]()]+\.s3\.[^\s\[\]()]+\.amazonaws\.com\/[^\s\[\]()]+/g;
     const s3Matches = text.match(s3Pattern);
     if (s3Matches) {
-      const validS3Images = s3Matches.filter(url => 
-        url.includes('.png') || url.includes('.jpg') || url.includes('.jpeg') || 
-        url.includes('chart') || url.includes('visualization')
-      );
+      const validS3Images = s3Matches.filter(url => {
+        const hasImageExt = url.includes('.png') || url.includes('.jpg') || url.includes('.jpeg') ||
+          url.includes('chart') || url.includes('visualization');
+        // For S3 URLs, require complete presigned signature to avoid 403 errors
+        const isPresigned = url.includes('X-Amz-Algorithm=');
+        const hasCompleteSignature = !isPresigned || url.includes('X-Amz-Signature=');
+        return hasImageExt && hasCompleteSignature;
+      });
       imageUrls.push(...validS3Images);
     }
-    
+
     // CloudFront URLs
-    const cloudfrontPattern = /https:\/\/[a-zA-Z0-9.-]+\.cloudfront\.net\/[^\s\[\]"]+/g;
+    const cloudfrontPattern = /https:\/\/[a-zA-Z0-9.-]+\.cloudfront\.net\/[^\s\[\]"()]+/g;
     const cfMatches = text.match(cloudfrontPattern);
     if (cfMatches) {
       const validCfImages = cfMatches.filter(url =>
@@ -292,20 +296,21 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ user }) => {
       );
       imageUrls.push(...validCfImages);
     }
-    
+
     return imageUrls;
   };
 
   const formatMessage = (content: string) => {
     // First check for plain image URLs not in markdown format
     const detectedImageUrls = detectImageUrls(content);
-    
+
     // Parse content for markdown images and S3 URLs
     const lines = content.split('\n');
-    
+
     const formattedLines = lines.map((line, lineIndex) => {
-      // Check for markdown image syntax: ![alt text](url)
-      const imageRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
+      // Check for markdown image syntax: ![alt text](url) OR link syntax with image URLs: [alt text](url)
+      // The second pattern catches when LLM returns links to images instead of image markdown
+      const imageRegex = /!?\[([^\]]*)\]\(([^)]+)\)/g;
       const parts: (string | React.ReactElement)[] = [];
       let lastIndex = 0;
       let match;
@@ -318,11 +323,31 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ user }) => {
 
         const altText = match[1];
         const imageUrl = match[2];
-        
+
         // Check if it's an S3 URL or CloudFront URL with image extension or contains chart visualization
-        const isS3ImageUrl = imageUrl.includes('s3.amazonaws.com') && 
-                            (imageUrl.includes('.png') || imageUrl.includes('.jpg') || imageUrl.includes('.jpeg') || 
+        // Handle both global (s3.amazonaws.com) and regional (s3.us-west-2.amazonaws.com) endpoints
+        const isS3ImageUrl = (imageUrl.includes('s3.amazonaws.com') || (imageUrl.includes('.s3.') && imageUrl.includes('.amazonaws.com'))) &&
+                            (imageUrl.includes('.png') || imageUrl.includes('.jpg') || imageUrl.includes('.jpeg') ||
                              imageUrl.includes('chart') || imageUrl.includes('visualization'));
+
+        // For presigned URLs, only load when the URL is complete (has signature)
+        // This prevents loading partial URLs during streaming
+        const isPresignedUrl = imageUrl.includes('X-Amz-Algorithm=');
+        const isCompletePresignedUrl = !isPresignedUrl || imageUrl.includes('X-Amz-Signature=');
+
+        // Skip incomplete presigned URLs during streaming
+        if (isS3ImageUrl && isPresignedUrl && !isCompletePresignedUrl) {
+          // URL is still being streamed, show placeholder
+          parts.push(
+            <div key={`image-loading-${lineIndex}-${match.index}`} className="message-image-container">
+              <div className="chart-loading-container">
+                <p className="loading-text">Loading image...</p>
+              </div>
+            </div>
+          );
+          lastIndex = imageRegex.lastIndex;
+          continue;
+        }
         
         const isCloudFrontImageUrl = imageUrl.includes('cloudfront.net') && 
                                    (imageUrl.includes('.png') || imageUrl.includes('.jpg') || imageUrl.includes('.jpeg') ||

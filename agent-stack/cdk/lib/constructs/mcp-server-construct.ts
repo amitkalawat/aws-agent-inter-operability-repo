@@ -1,8 +1,9 @@
 import * as path from 'path';
 import { Construct } from 'constructs';
-import { CfnOutput, RemovalPolicy } from 'aws-cdk-lib';
+import { Aws, CfnOutput, Duration, RemovalPolicy } from 'aws-cdk-lib';
 import { IUserPool, IUserPoolClient } from 'aws-cdk-lib/aws-cognito';
 import { ISecret } from 'aws-cdk-lib/aws-secretsmanager';
+import { Bucket, BlockPublicAccess, BucketEncryption } from 'aws-cdk-lib/aws-s3';
 import {
   Runtime,
   AgentRuntimeArtifact,
@@ -21,6 +22,7 @@ export interface McpServerConfig {
   readonly dockerPath: string;
   readonly description?: string;
   readonly additionalPolicies?: PolicyStatement[];
+  readonly environmentVariables?: Record<string, string>;
 }
 
 export interface McpServerConstructProps {
@@ -37,9 +39,26 @@ export interface McpServerRuntime {
 
 export class McpServerConstruct extends Construct {
   public readonly runtimes: Map<string, McpServerRuntime> = new Map();
+  public readonly novaCanvasImageBucket: Bucket;
 
   constructor(scope: Construct, id: string, props: McpServerConstructProps) {
     super(scope, id);
+
+    // Create S3 bucket for Nova Canvas generated images
+    this.novaCanvasImageBucket = new Bucket(this, 'NovaCanvasImageBucket', {
+      bucketName: `${Config.mcpServers.novaCanvas.imageBucketPrefix}-${Aws.ACCOUNT_ID}`,
+      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+      encryption: BucketEncryption.S3_MANAGED,
+      removalPolicy: props.removalPolicy ?? RemovalPolicy.DESTROY,
+      autoDeleteObjects: (props.removalPolicy ?? RemovalPolicy.DESTROY) === RemovalPolicy.DESTROY,
+      lifecycleRules: [
+        {
+          id: 'ExpireGeneratedImages',
+          expiration: Duration.days(Config.mcpServers.novaCanvas.imageExpirationDays),
+          prefix: 'generated/',
+        },
+      ],
+    });
 
     // Define all MCP servers to deploy
     const mcpServers: McpServerConfig[] = [
@@ -97,6 +116,11 @@ export class McpServerConstruct extends Construct {
         name: Config.mcpServers.novaCanvas.name,
         dockerPath: Config.mcpServers.novaCanvas.dockerPath,
         description: 'Amazon Nova Canvas image generation MCP server',
+        environmentVariables: {
+          IMAGE_OUTPUT_BUCKET: this.novaCanvasImageBucket.bucketName,
+          // Nova Canvas is only available in us-east-1, ap-northeast-1, eu-west-1
+          BEDROCK_REGION: 'us-east-1',
+        },
         additionalPolicies: [
           new PolicyStatement({
             effect: Effect.ALLOW,
@@ -104,7 +128,8 @@ export class McpServerConstruct extends Construct {
               'bedrock:InvokeModel',
             ],
             resources: [
-              `arn:aws:bedrock:${Config.aws.region}::foundation-model/amazon.nova-canvas-v1:0`,
+              // Nova Canvas is only available in us-east-1, so we need cross-region access
+              'arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-canvas-v1:0',
             ],
           }),
           new PolicyStatement({
@@ -113,7 +138,10 @@ export class McpServerConstruct extends Construct {
               's3:PutObject',
               's3:GetObject',
             ],
-            resources: ['*'],
+            resources: [
+              this.novaCanvasImageBucket.bucketArn,
+              `${this.novaCanvasImageBucket.bucketArn}/*`,
+            ],
           }),
         ],
       },
@@ -151,6 +179,7 @@ export class McpServerConstruct extends Construct {
       environmentVariables: {
         AWS_REGION: Config.aws.region,
         MCP_SERVER_NAME: config.name,
+        ...config.environmentVariables,
       },
     });
 

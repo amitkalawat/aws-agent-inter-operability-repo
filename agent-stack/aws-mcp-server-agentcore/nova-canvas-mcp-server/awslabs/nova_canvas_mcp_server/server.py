@@ -49,14 +49,20 @@ else:
 # Bedrock Runtime Client
 bedrock_runtime_client: BedrockRuntimeClient
 aws_region: str = os.environ.get('AWS_REGION', 'us-east-1')
+# Bedrock region for Nova Canvas (may differ from runtime region due to model availability)
+bedrock_region: str = os.environ.get('BEDROCK_REGION', 'us-east-1')
+
+# S3 bucket for image output (optional, enables S3 upload with presigned URLs)
+image_output_bucket: Optional[str] = os.environ.get('IMAGE_OUTPUT_BUCKET')
 
 try:
+    logger.info(f'Initializing Bedrock runtime client in region: {bedrock_region}')
     if aws_profile := os.environ.get('AWS_PROFILE'):
         bedrock_runtime_client = boto3.Session(
-            profile_name=aws_profile, region_name=aws_region
+            profile_name=aws_profile, region_name=bedrock_region
         ).client('bedrock-runtime')
     else:
-        bedrock_runtime_client = boto3.Session(region_name=aws_region).client('bedrock-runtime')
+        bedrock_runtime_client = boto3.Session(region_name=bedrock_region).client('bedrock-runtime')
 except Exception as e:
     logger.error(f'Error creating bedrock runtime client: {str(e)}')
     raise
@@ -183,13 +189,19 @@ async def mcp_generate_image(
             seed=seed,
             number_of_images=number_of_images,
             workspace_dir=workspace_dir,
+            s3_bucket=image_output_bucket,
+            s3_region=aws_region,  # S3 bucket region for presigned URLs
         )
 
         if response.status == 'success':
-            # return response.paths
+            # If using S3, paths are already presigned URLs; otherwise prefix with file://
+            if image_output_bucket:
+                paths = response.paths
+            else:
+                paths = [f'file://{path}' for path in response.paths]
             return McpImageGenerationResponse(
                 status='success',
-                paths=[f'file://{path}' for path in response.paths],
+                paths=paths,
             )
         else:
             logger.error(f'Image generation returned error status: {response.message}')
@@ -296,12 +308,19 @@ async def mcp_generate_image_with_colors(
             seed=seed,
             number_of_images=number_of_images,
             workspace_dir=workspace_dir,
+            s3_bucket=image_output_bucket,
+            s3_region=aws_region,  # S3 bucket region for presigned URLs
         )
 
         if response.status == 'success':
+            # If using S3, paths are already presigned URLs; otherwise prefix with file://
+            if image_output_bucket:
+                paths = response.paths
+            else:
+                paths = [f'file://{path}' for path in response.paths]
             return McpImageGenerationResponse(
                 status='success',
-                paths=[f'file://{path}' for path in response.paths],
+                paths=paths,
             )
         else:
             logger.error(

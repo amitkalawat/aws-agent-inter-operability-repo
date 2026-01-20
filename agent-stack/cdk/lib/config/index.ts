@@ -63,6 +63,8 @@ export const Config = {
     novaCanvas: {
       name: 'nova_canvas_mcp',
       dockerPath: '../aws-mcp-server-agentcore/nova-canvas-mcp-server',
+      imageBucketPrefix: 'acme-nova-canvas-images',
+      imageExpirationDays: 1,
     },
   },
 
