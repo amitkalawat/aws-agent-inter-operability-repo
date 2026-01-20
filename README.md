@@ -10,10 +10,10 @@ The project is organized into two main stacks:
 Contains the AI agent infrastructure built with AWS Bedrock AgentCore:
 
 - **Frontend**: React TypeScript application with AWS Cognito authentication
-- **Backend**: Python Strands agent powered by Claude 3.7 Sonnet
+- **Backend**: Python Strands agent powered by Claude Haiku 4.5
 - **Memory**: AWS Bedrock AgentCore Memory for conversation persistence
-- **MCP Integration**: Dual MCP support for AWS Documentation and Data Processing
-- **Tools**: Calculator (SymPy) and Weather utilities
+- **MCP Integration**: 4 MCP servers (AWS Docs, Data Processing, Rekognition, Nova Canvas)
+- **Code Interpreter**: Python execution for data visualization
 
 ### Data Stack (`data-stack/`)
 Contains the streaming data infrastructure and analytics:
@@ -22,34 +22,38 @@ Contains the streaming data infrastructure and analytics:
 - **Data Generation**: Lambda functions generating synthetic ACME Corp telemetry data
 - **Data Lake**: S3-based storage with Glue catalog for analytics
 - **Dashboard**: CloudWatch-based telemetry visualization
-- **MCP Server**: Data processing MCP server for agent queries
 
 ## AWS Services Used
 
 - **AWS Bedrock AgentCore**: Agent runtime, memory, and MCP server hosting
 - **Amazon MSK**: Managed Kafka for streaming
 - **AWS Lambda**: Data generation and processing
-- **Amazon S3**: Data lake storage
+- **Amazon S3**: Data lake storage and image hosting
 - **AWS Glue**: Data catalog and ETL
 - **Amazon Athena**: SQL queries on data lake
 - **AWS Cognito**: Authentication
 - **Amazon CloudFront**: Frontend hosting
+- **Amazon Rekognition**: Image analysis
+- **Amazon Bedrock**: Nova Canvas image generation
 
 ## Region
 
-All resources are deployed in **eu-central-1** (Frankfurt).
+All resources are deployed in **us-west-2** (Oregon).
 
 ## Project Structure
 
 ```
 aws-agent-inter-operability-repo/
 ├── agent-stack/                    # AI Agent Infrastructure
-│   ├── frontend/                   # React TypeScript app
-│   ├── backend/                    # Python Strands agent
-│   │   ├── agent/                  # Agent source code
-│   │   └── deployment/             # Deployment scripts
-│   ├── infrastructure/             # Cognito setup
+│   ├── cdk/                        # CDK infrastructure
+│   │   ├── lib/                    # Stack and constructs
+│   │   └── docker/agent/           # Agent container code
+│   ├── frontend/acme-chat/         # React TypeScript app
 │   └── aws-mcp-server-agentcore/   # MCP server implementations
+│       ├── aws-documentation-mcp-server/
+│       ├── aws-dataprocessing-mcp-server/
+│       ├── amazon-rekognition-mcp-server/
+│       └── nova-canvas-mcp-server/
 │
 └── data-stack/                     # Streaming Data Infrastructure
     ├── ibc2025-data-gen-msk-repo-v2/           # MSK cluster CDK
@@ -58,41 +62,31 @@ aws-agent-inter-operability-repo/
     └── ibc2025-mcp-data-generation-repo/       # Data processing MCP
 ```
 
-## Configuration
-
-Before deploying, you need to configure the following files with your own values:
-
-### Agent Stack Configuration
-
-| Template File | Local File (create) | Description |
-|---------------|---------------------|-------------|
-| `agent-stack/aws-mcp-server-agentcore/.env.template` | `.env.local` | Cognito credentials |
-| `agent-stack/backend/deployment/secrets.template.json` | `secrets.local.json` | MCP URLs and Cognito secrets |
-| `agent-stack/infrastructure/cognito/cognito_config.json` | `cognito_config.local.json` | Cognito user pool config |
-
-### Data Stack Configuration
-
-| File | Description |
-|------|-------------|
-| `data-stack/ibc2025-mcp-data-generation-repo/cdk/stacks/analytics_stack.py` | Set Redshift admin password |
-
-### Environment Variables
-
-Set these environment variables before running deployment scripts:
-
-```bash
-export COGNITO_ADMIN_PASSWORD="<your-secure-password>"
-export AWS_REGION="eu-central-1"
-```
-
 ## Quick Start
 
 ### Prerequisites
 
 - AWS CLI configured with appropriate credentials
 - Node.js 18+ and npm
-- Python 3.11+
 - AWS CDK CLI (`npm install -g aws-cdk`)
+
+### Deploy Agent Stack
+
+```bash
+cd agent-stack/cdk
+
+# Install dependencies
+npm install
+
+# Build frontend
+cd ../frontend/acme-chat
+npm install
+npm run build
+cd ../../cdk
+
+# Deploy everything (Cognito, Agent, MCP servers, Frontend)
+cdk deploy
+```
 
 ### Deploy Data Stack
 
@@ -107,23 +101,24 @@ cd ../ibc2025-data-gen-acme-video-telemetry-synthetic
 cdk deploy
 ```
 
-### Deploy Agent Stack
+## Features
 
-```bash
-# Deploy backend agent
-cd agent-stack/backend/deployment
-cp ../agent/strands_claude.py .
-cp ../agent/memory_manager.py .
-cp ../agent/requirements.txt .
-source .venv/bin/activate
-python deploy_agent_with_auth.py
+- **Conversation Memory**: Persistent chat history via AgentCore Memory
+- **MCP Integration**: Query AWS docs, run Athena SQL, analyze/generate images
+- **Streaming Responses**: Real-time response streaming
+- **Code Interpreter**: Python execution for charts and data visualization
+- **Image Support**: Generate images (Nova Canvas) and analyze them (Rekognition)
 
-# Deploy frontend
-cd ../../frontend/acme-chat
-npm install
-npm run build
-# Deploy to CloudFront
-```
+## Outputs
+
+After deploying the agent stack, you'll get:
+
+| Output | Description |
+|--------|-------------|
+| `FrontendUrl` | CloudFront URL for the chat application |
+| `AgentArn` | Main agent runtime ARN |
+| `CognitoUserPoolId` | User pool ID for authentication |
+| `CognitoAppClientId` | App client ID for frontend |
 
 ## License
 
