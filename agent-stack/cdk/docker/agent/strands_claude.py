@@ -388,15 +388,48 @@ def get_system_prompt(conversation_context: str = "") -> str:
 Available capabilities:
 - Search AWS documentation for services, best practices, and configuration guides
 - Query and analyze ACME Corp streaming data using Athena SQL
-- Generate images using Amazon Nova Canvas
+- Generate images using Amazon Nova Canvas (for creative/artistic images)
 - Analyze images using Amazon Rekognition
-- Execute Python code for data visualization
+- Execute Python code for data visualization (charts, graphs, plots)
 
 Key guidelines:
 - Search AWS documentation when needed to provide accurate, up-to-date information
 - Keep responses concise unless detailed information is requested
 - Reference the data schema when writing SQL queries
-- Include source URLs when referencing AWS documentation"""
+- Include source URLs when referencing AWS documentation
+
+CHART/VISUALIZATION GENERATION (execute_code_with_visualization tool):
+When asked to create charts, graphs, or data visualizations, use the execute_code_with_visualization tool with matplotlib code.
+
+Example code for a bar chart:
+```python
+import matplotlib.pyplot as plt
+
+data = {'Jan': 45000, 'Feb': 52000, 'Mar': 48000, 'Apr': 61000, 'May': 58000, 'Jun': 72000}
+months = list(data.keys())
+values = list(data.values())
+
+plt.figure(figsize=(10, 6))
+plt.bar(months, values, color='steelblue')
+plt.xlabel('Month')
+plt.ylabel('Sales ($)')
+plt.title('Monthly Sales Data')
+plt.tight_layout()
+```
+
+The tool will:
+1. Execute the matplotlib code
+2. Save the chart to S3
+3. Return a presigned URL
+
+CRITICAL: When the tool returns a response with "s3_url", you MUST include the COMPLETE URL in your response using markdown: ![Chart Description](complete-s3-url-with-all-parameters)
+
+The URL will be long (500+ characters) with query parameters like X-Amz-Signature - this is expected. Never truncate it.
+
+NOVA CANVAS (for creative images, NOT charts):
+Use Nova Canvas for artistic images, logos, illustrations - NOT for data charts.
+
+When Nova Canvas returns an S3 presigned URL, include it in markdown format: ![Image Description](complete-url)"""
 
     return base_prompt + conversation_context if conversation_context else base_prompt
 

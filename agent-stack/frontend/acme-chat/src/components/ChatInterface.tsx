@@ -267,21 +267,40 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ user }) => {
     }
   ];
 
+  // Validate that a presigned URL has a complete signature (64 hex chars for SHA256)
+  const hasCompletePresignedSignature = (url: string): boolean => {
+    if (!url.includes('X-Amz-Algorithm=')) {
+      return true; // Not a presigned URL, no signature needed
+    }
+    // Extract signature value and verify it's complete (64 hex characters)
+    const signatureMatch = url.match(/X-Amz-Signature=([a-fA-F0-9]+)/);
+    if (!signatureMatch) {
+      return false; // Has algorithm but no signature
+    }
+    // SHA256 signatures are 64 hex characters
+    return signatureMatch[1].length >= 64;
+  };
+
   // Function to detect and extract image URLs from text
   const detectImageUrls = (text: string): string[] => {
     const imageUrls: string[] = [];
 
-    // S3 presigned URLs - must have complete signature to avoid 403 errors
-    const s3Pattern = /https:\/\/[^\s\[\]()]+\.s3\.[^\s\[\]()]+\.amazonaws\.com\/[^\s\[\]()]+/g;
-    const s3Matches = text.match(s3Pattern);
-    if (s3Matches) {
+    // Match both virtual-hosted and path-style S3 URLs
+    // Virtual: https://bucket.s3.region.amazonaws.com/key
+    // Path:    https://s3.region.amazonaws.com/bucket/key
+    const s3VirtualPattern = /https:\/\/[^\s\[\]()]+\.s3\.[^\s\[\]()]+\.amazonaws\.com\/[^\s\[\]()]+/g;
+    const s3PathPattern = /https:\/\/s3\.[^\s\[\]()]+\.amazonaws\.com\/[^\s\[\]()]+/g;
+
+    const s3VirtualMatches = text.match(s3VirtualPattern) || [];
+    const s3PathMatches = text.match(s3PathPattern) || [];
+    const s3Matches = [...s3VirtualMatches, ...s3PathMatches];
+
+    if (s3Matches.length > 0) {
       const validS3Images = s3Matches.filter(url => {
         const hasImageExt = url.includes('.png') || url.includes('.jpg') || url.includes('.jpeg') ||
           url.includes('chart') || url.includes('visualization');
-        // For S3 URLs, require complete presigned signature to avoid 403 errors
-        const isPresigned = url.includes('X-Amz-Algorithm=');
-        const hasCompleteSignature = !isPresigned || url.includes('X-Amz-Signature=');
-        return hasImageExt && hasCompleteSignature;
+        // For S3 URLs, require complete presigned signature (64 hex chars) to avoid 400/403 errors
+        return hasImageExt && hasCompletePresignedSignature(url);
       });
       imageUrls.push(...validS3Images);
     }
@@ -300,9 +319,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ user }) => {
     return imageUrls;
   };
 
-  const formatMessage = (content: string) => {
+  const formatMessage = (content: string, isStreaming: boolean = false) => {
     // First check for plain image URLs not in markdown format
-    const detectedImageUrls = detectImageUrls(content);
+    // Skip detection during streaming to avoid loading incomplete URLs
+    const detectedImageUrls = isStreaming ? [] : detectImageUrls(content);
 
     // Parse content for markdown images and S3 URLs
     const lines = content.split('\n');
@@ -330,13 +350,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ user }) => {
                             (imageUrl.includes('.png') || imageUrl.includes('.jpg') || imageUrl.includes('.jpeg') ||
                              imageUrl.includes('chart') || imageUrl.includes('visualization'));
 
-        // For presigned URLs, only load when the URL is complete (has signature)
-        // This prevents loading partial URLs during streaming
-        const isPresignedUrl = imageUrl.includes('X-Amz-Algorithm=');
-        const isCompletePresignedUrl = !isPresignedUrl || imageUrl.includes('X-Amz-Signature=');
+        // For presigned URLs, only load when the URL has complete signature (64 hex chars)
+        // This prevents loading partial/truncated URLs that cause 400/403 errors
+        const isCompletePresignedUrl = hasCompletePresignedSignature(imageUrl);
 
-        // Skip incomplete presigned URLs during streaming
-        if (isS3ImageUrl && isPresignedUrl && !isCompletePresignedUrl) {
+        // Skip incomplete presigned URLs - they will cause 400 Bad Request errors
+        if (isS3ImageUrl && !isCompletePresignedUrl) {
           // URL is still being streamed, show placeholder
           parts.push(
             <div key={`image-loading-${lineIndex}-${match.index}`} className="message-image-container">
@@ -413,12 +432,20 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ user }) => {
     });
     
     // Add detected plain image URLs as gallery at the end
-    if (detectedImageUrls.length > 0) {
+    // Filter out URLs already rendered via markdown to prevent duplicates
+    const markdownUrls = new Set<string>();
+    const markdownUrlRegex = /!?\[[^\]]*\]\(([^)]+)\)/g;
+    let mdMatch;
+    while ((mdMatch = markdownUrlRegex.exec(content)) !== null) {
+      markdownUrls.add(mdMatch[1]);
+    }
+
+    const uniqueDetectedUrls = detectedImageUrls.filter(url => !markdownUrls.has(url));
+
+    if (uniqueDetectedUrls.length > 0) {
       const imageGallery = (
         <div key="image-gallery" className="message-image-gallery">
-          {detectedImageUrls.map((url, index) => {
-            // Remove URL from the content to avoid duplication
-            const cleanedUrl = url.split('?')[0]; // Remove query parameters for display
+          {uniqueDetectedUrls.map((url, index) => {
             return (
               <div key={`gallery-image-${index}`} className="message-image-container">
                 <ImageWithLoader
@@ -436,7 +463,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ user }) => {
           })}
         </div>
       );
-      
+
       return (
         <div>
           {formattedLines}
@@ -509,7 +536,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ user }) => {
               </span>
             </div>
             <div className="message-content">
-              {formatMessage(message.content)}
+              {formatMessage(message.content, isStreaming && message.id === currentStreamingMessageId)}
             </div>
           </div>
         ))}

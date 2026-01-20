@@ -57,6 +57,11 @@ export class McpServerConstruct extends Construct {
           expiration: Duration.days(Config.mcpServers.novaCanvas.imageExpirationDays),
           prefix: 'generated/',
         },
+        {
+          id: 'ExpireVisualizations',
+          expiration: Duration.days(Config.mcpServers.novaCanvas.imageExpirationDays),
+          prefix: 'visualizations/',
+        },
       ],
     });
 

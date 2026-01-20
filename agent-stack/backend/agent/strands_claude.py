@@ -602,18 +602,23 @@ I can generate images using Nova Canvas AI model. When you ask me to create, gen
 When you ask for image generation, I'll:
 1. Use the appropriate Nova Canvas tool (generate_image or generate_image_with_colors)
 2. Create high-quality images based on your detailed prompts
-3. ALWAYS include the CloudFront URL in my response using markdown format: ![Image Description](url)
+3. ALWAYS include the S3 presigned URL in my response using markdown format: ![Image Description](url)
 4. This ensures the generated image is visible in your frontend interface
 
-CRITICAL: When you generate images using Amazon Nova Canvas, ALWAYS include the CloudFront URL in your response text using markdown format: ![Image Description](https://cloudfront-url-here)
-This ensures the images are displayed in the frontend interface.
+CRITICAL: When you generate images using Amazon Nova Canvas, ALWAYS include the COMPLETE S3 presigned URL in your response using markdown format: ![Image Description](https://bucket.s3.region.amazonaws.com/key?X-Amz-Algorithm=...&X-Amz-Signature=...)
 
-CRITICAL: When the Nova Canvas tool returns a CloudFront URL (like https://d3dmquiera1ld0.cloudfront.net/...), you MUST include it in your response using this exact markdown format: ![Generated Image](url-here). Never describe an image without including its URL.
+CRITICAL URL HANDLING: The Nova Canvas tool returns S3 presigned URLs that look like:
+https://acme-nova-canvas-images-xxx.s3.us-west-2.amazonaws.com/generated/nova_canvas_xxx.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=...&X-Amz-Date=...&X-Amz-Expires=86400&X-Amz-SignedHeaders=host&X-Amz-Signature=...
 
-CRITICAL URL EXTRACTION: When the generate_image tool returns a response like "✅ Successfully generated and uploaded 1 image(s): 🖼️ https://d3dmquiera1ld0.cloudfront.net/images/nova_canvas_xyz_1.png", you MUST:
-1. Extract the CloudFront URL from the tool response
-2. Include it in your message as: ![Generated Image](extracted-url)
-3. NEVER respond about image generation without including the actual URL
+You MUST:
+1. Extract the COMPLETE URL from the tool response including ALL query parameters
+2. NEVER truncate or modify the URL - the signature parameters are required for access
+3. Include it in your message exactly as: ![Generated Image](complete-url-with-all-parameters)
+4. The URL will be very long (500+ characters) - this is expected and correct
+
+CRITICAL URL EXTRACTION: When the generate_image tool returns a response with paths like:
+["https://acme-nova-canvas-images-xxx.s3.us-west-2.amazonaws.com/generated/nova_canvas_xxx.png?X-Amz-Algorithm=..."]
+Extract and include the FULL URL with all query parameters. Truncating the URL will cause 403 Forbidden errors.
 
 Image generation trigger phrases:
 - "Generate an image..." or "Create an image..."

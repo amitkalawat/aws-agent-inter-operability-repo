@@ -3,6 +3,7 @@ import { Construct } from 'constructs';
 import { CfnOutput, RemovalPolicy } from 'aws-cdk-lib';
 import { IUserPool, IUserPoolClient } from 'aws-cdk-lib/aws-cognito';
 import { ISecret } from 'aws-cdk-lib/aws-secretsmanager';
+import { IBucket } from 'aws-cdk-lib/aws-s3';
 import {
   Runtime,
   AgentRuntimeArtifact,
@@ -24,6 +25,7 @@ export interface AgentRuntimeConstructProps {
   readonly mcpCredentials: ISecret;
   readonly memory: IMemory;
   readonly mcpServerEndpoints: Record<string, string>;
+  readonly visualizationBucket: IBucket;
   readonly removalPolicy?: RemovalPolicy;
 }
 
@@ -62,6 +64,7 @@ export class AgentRuntimeConstruct extends Construct {
         BEDROCK_MODEL_ID: Config.agent.model,
         MEMORY_ID: props.memory.memoryId,
         DOCKER_CONTAINER: '1',
+        VISUALIZATION_BUCKET: props.visualizationBucket.bucketName,
         ...mcpEndpointEnvVars,
       },
     });
@@ -136,17 +139,29 @@ export class AgentRuntimeConstruct extends Construct {
       })
     );
 
-    // Grant Code Interpreter permissions
+    // Grant Code Interpreter permissions (all code interpreter actions)
     this.runtime.addToRolePolicy(
       new PolicyStatement({
         effect: Effect.ALLOW,
         actions: [
-          'bedrock-agentcore:StartCodeInterpreterSession',
-          'bedrock-agentcore:InvokeCodeInterpreterSession',
-          'bedrock-agentcore:EndCodeInterpreterSession',
+          'bedrock-agentcore:*CodeInterpreter*',
         ],
         resources: [
           `arn:aws:bedrock-agentcore:${Config.aws.region}:aws:code-interpreter/*`,
+        ],
+      })
+    );
+
+    // Grant S3 permissions for visualization bucket (upload charts, generate presigned URLs)
+    this.runtime.addToRolePolicy(
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: [
+          's3:PutObject',
+          's3:GetObject',
+        ],
+        resources: [
+          `${props.visualizationBucket.bucketArn}/*`,
         ],
       })
     );

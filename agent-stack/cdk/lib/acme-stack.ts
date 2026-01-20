@@ -98,6 +98,7 @@ export class AcmeAgentCoreStack extends Stack {
       mcpCredentials: secrets.mcpCredentials,
       memory: memory.memory,
       mcpServerEndpoints: mcpServers.getArns(),
+      visualizationBucket: mcpServers.novaCanvasImageBucket,
       removalPolicy,
     });
 
