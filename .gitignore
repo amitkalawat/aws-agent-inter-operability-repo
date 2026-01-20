@@ -5,10 +5,18 @@ venv/
 env/
 ENV/
 *-env/
+*_env/
 test-env/
 test_env/
 __pycache__/
 *.py[cod]
+
+# Virtual environments (explicit paths)
+agentcore-env/
+**/venv/
+**/.venv/
+**/test-env/
+**/test_env/
 
 # Claude Code settings
 .claude/
