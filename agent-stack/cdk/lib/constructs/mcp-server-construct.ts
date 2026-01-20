@@ -80,19 +80,34 @@ export class McpServerConstruct extends Construct {
           new PolicyStatement({
             effect: Effect.ALLOW,
             actions: [
+              // Athena query execution
               'athena:StartQueryExecution',
               'athena:GetQueryExecution',
               'athena:GetQueryResults',
               'athena:StopQueryExecution',
               'athena:GetWorkGroup',
+              // Athena catalog/database/table listing
+              'athena:ListDataCatalogs',
+              'athena:ListDatabases',
+              'athena:ListTableMetadata',
+              'athena:GetDataCatalog',
+              'athena:GetDatabase',
+              'athena:GetTableMetadata',
+              // Glue Data Catalog access (Athena uses Glue as metadata store)
               'glue:GetDatabase',
               'glue:GetDatabases',
               'glue:GetTable',
               'glue:GetTables',
+              'glue:GetPartition',
               'glue:GetPartitions',
+              'glue:BatchGetPartition',
+              'glue:GetCatalogImportStatus',
+              'glue:SearchTables',
+              // S3 access for query results
               's3:GetObject',
               's3:PutObject',
               's3:ListBucket',
+              's3:GetBucketLocation',
             ],
             resources: ['*'],
           }),

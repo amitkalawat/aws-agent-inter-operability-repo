@@ -39,8 +39,12 @@ mcp = FastMCP(
     - Compare faces between images for identity verification
     - Detect and extract text from images
 
-    All image paths should be local file paths accessible to the server. If you've set the BASE_DIR
-    environment variable, paths will be resolved relative to that directory.
+    Image sources can be:
+    - Local file paths accessible to the server
+    - S3 URIs (s3://bucket-name/key/path/image.jpg)
+    - HTTP(S) URLs including presigned S3 URLs
+
+    If you've set the BASE_DIR environment variable, local paths will be resolved relative to that directory.
 
     For more information about Amazon Rekognition, visit:
     https://aws.amazon.com/rekognition/
@@ -98,7 +102,7 @@ async def list_collections() -> Dict:
 @handle_exceptions
 async def index_faces(
     collection_id: str = Field(description='ID of the collection to add the face to'),
-    image_path: str = Field(description='Path to the image file'),
+    image_path: str = Field(description='Path to image file, S3 URI (s3://bucket/key), or HTTP(S) URL'),
 ) -> Dict:
     """Detects faces in an image and adds them to the specified collection.
 
@@ -162,7 +166,7 @@ async def index_faces(
 @handle_exceptions
 async def search_faces_by_image(
     collection_id: str = Field(description='ID of the collection to search'),
-    image_path: str = Field(description='Path to the image file'),
+    image_path: str = Field(description='Path to image file, S3 URI (s3://bucket/key), or HTTP(S) URL'),
 ) -> Dict:
     """Searches for faces in a collection that match a face in the supplied image.
 
@@ -224,7 +228,7 @@ async def search_faces_by_image(
 @mcp.tool()
 @handle_exceptions
 async def detect_labels(
-    image_path: str = Field(description='Path to the image file'),
+    image_path: str = Field(description='Path to image file, S3 URI (s3://bucket/key), or HTTP(S) URL'),
 ) -> Dict:
     """Detects objects, scenes, concepts, and activities in an image.
 
@@ -238,7 +242,8 @@ async def detect_labels(
     - MinConfidence: 50 (minimum confidence score of 50%)
 
     Args:
-        image_path: Path to the image file to analyze.
+        image_path: Image source - can be a local file path, S3 URI (s3://bucket/key), or HTTP(S) URL
+                   (including presigned S3 URLs like https://bucket.s3.region.amazonaws.com/key?X-Amz-...).
 
     Returns:
         A dictionary containing detected labels and other metadata, including:
@@ -284,7 +289,7 @@ async def detect_labels(
 @mcp.tool()
 @handle_exceptions
 async def detect_moderation_labels(
-    image_path: str = Field(description='Path to the image file'),
+    image_path: str = Field(description='Path to image file, S3 URI (s3://bucket/key), or HTTP(S) URL'),
 ) -> Dict:
     """Detects unsafe or inappropriate content in an image.
 
@@ -345,7 +350,7 @@ async def detect_moderation_labels(
 @mcp.tool()
 @handle_exceptions
 async def recognize_celebrities(
-    image_path: str = Field(description='Path to the image file'),
+    image_path: str = Field(description='Path to image file, S3 URI (s3://bucket/key), or HTTP(S) URL'),
 ) -> Dict:
     """Recognizes celebrities in an image.
 
@@ -409,8 +414,8 @@ async def recognize_celebrities(
 @mcp.tool()
 @handle_exceptions
 async def compare_faces(
-    source_image_path: str = Field(description='Path to the source image file'),
-    target_image_path: str = Field(description='Path to the target image file'),
+    source_image_path: str = Field(description='Path to source image file, S3 URI, or HTTP(S) URL'),
+    target_image_path: str = Field(description='Path to target image file, S3 URI, or HTTP(S) URL'),
 ) -> Dict:
     """Compares a face in the source image with faces in the target image.
 
@@ -475,7 +480,7 @@ async def compare_faces(
 @mcp.tool()
 @handle_exceptions
 async def detect_text(
-    image_path: str = Field(description='Path to the image file'),
+    image_path: str = Field(description='Path to image file, S3 URI (s3://bucket/key), or HTTP(S) URL'),
 ) -> Dict:
     """Detects text in an image.
 

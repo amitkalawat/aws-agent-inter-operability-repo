@@ -17,11 +17,13 @@
 import boto3
 import functools
 import os
+import re
+import urllib.request
 from awslabs.amazon_rekognition_mcp_server import __version__
 from botocore.config import Config
 from loguru import logger
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, Optional, TypeVar, cast
+from typing import Any, Awaitable, Callable, Dict, Optional, TypeVar, Union, cast
 
 
 T = TypeVar('T', bound=Callable[..., Awaitable[Any]])
@@ -103,21 +105,56 @@ def sanitize_path(file_path: str, base_dir: Optional[str] = None) -> Path:
         raise ValueError(f'Invalid path: {str(e)}')
 
 
-def get_image_bytes(image_path: str) -> Dict[str, bytes]:
-    """Get image bytes from a local file.
+def get_image_bytes(image_source: str) -> Dict[str, Any]:
+    """Get image data from a local file, S3 URI, or HTTP(S) URL.
+
+    Supports three input formats:
+    1. Local file path: /path/to/image.jpg
+    2. S3 URI: s3://bucket-name/key/path/image.jpg
+    3. HTTP(S) URL: https://bucket.s3.region.amazonaws.com/key?signature... (presigned URLs)
 
     Args:
-        image_path: Path to the image file.
+        image_source: Path to the image file, S3 URI, or HTTP(S) URL.
 
     Returns:
-        Dict with 'Bytes' key containing the image bytes.
+        Dict with either:
+        - 'Bytes' key containing the image bytes (for local files and HTTP URLs)
+        - 'S3Object' key containing bucket and key (for S3 URIs)
 
     Raises:
-        ValueError: If the image file does not exist or cannot be read.
+        ValueError: If the image cannot be read from the source.
     """
-    path = sanitize_path(image_path, get_base_dir())
+    # Check if it's an S3 URI (s3://bucket/key)
+    if image_source.startswith('s3://'):
+        match = re.match(r's3://([^/]+)/(.+)', image_source)
+        if not match:
+            raise ValueError(f'Invalid S3 URI format: {image_source}')
+        bucket = match.group(1)
+        key = match.group(2)
+        logger.debug(f'Using S3Object format: bucket={bucket}, key={key}')
+        return {'S3Object': {'Bucket': bucket, 'Name': key}}
+
+    # Check if it's an HTTP(S) URL (including presigned S3 URLs)
+    if image_source.startswith('http://') or image_source.startswith('https://'):
+        logger.debug(f'Downloading image from URL: {image_source[:100]}...')
+        try:
+            # Create a request with a user agent to avoid blocks
+            req = urllib.request.Request(
+                image_source,
+                headers={'User-Agent': 'Amazon-Rekognition-MCP-Server/1.0'}
+            )
+            with urllib.request.urlopen(req, timeout=30) as response:
+                image_bytes = response.read()
+                logger.debug(f'Downloaded {len(image_bytes)} bytes from URL')
+                return {'Bytes': image_bytes}
+        except Exception as e:
+            logger.error(f'Error downloading image from URL: {e}')
+            raise ValueError(f'Error downloading image from URL: {str(e)}')
+
+    # Otherwise treat as local file path
+    path = sanitize_path(image_source, get_base_dir())
     if not path.exists():
-        raise ValueError(f'Image file not found: {image_path}')
+        raise ValueError(f'Image file not found: {image_source}')
 
     try:
         with open(path, 'rb') as image_file:
