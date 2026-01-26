@@ -29,7 +29,7 @@ const dataGenStack = new DataGenStack(app, 'AcmeDataGenStack', {
   env: Config.env,
   vpc: networkStack.vpc,
   mskCluster: mskStack.cluster,
-  mskSecurityGroup: networkStack.mskSecurityGroup,
+  lambdaSecurityGroup: networkStack.lambdaSecurityGroup,
   dataBucket: dataLakeStack.dataBucket,
 });
 dataGenStack.addDependency(mskStack);
@@ -39,7 +39,7 @@ const dashboardStack = new DashboardStack(app, 'AcmeDashboardStack', {
   env: Config.env,
   vpc: networkStack.vpc,
   mskCluster: mskStack.cluster,
-  mskSecurityGroup: networkStack.mskSecurityGroup,
+  lambdaSecurityGroup: networkStack.lambdaSecurityGroup,
 });
 dashboardStack.addDependency(mskStack);
 

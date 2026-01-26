@@ -14,7 +14,7 @@ import * as path from 'path';
 export interface DashboardStackProps extends cdk.StackProps {
   vpc: ec2.IVpc;
   mskCluster: msk.CfnCluster;
-  mskSecurityGroup: ec2.SecurityGroup;
+  lambdaSecurityGroup: ec2.SecurityGroup;
 }
 
 export class DashboardStack extends cdk.Stack {
@@ -30,28 +30,12 @@ export class DashboardStack extends cdk.Stack {
       timeToLiveAttribute: 'ttl',
     });
 
-    // Lambda layer for AWS SDK
-    const sdkLayer = new lambda.LayerVersion(this, 'AwsSdkLayer', {
-      code: lambda.Code.fromAsset(path.join(__dirname, '../../lambda/websocket'), {
-        bundling: {
-          image: lambda.Runtime.NODEJS_18_X.bundlingImage,
-          command: [
-            'bash', '-c',
-            'npm install && mkdir -p /asset-output/nodejs && cp -r node_modules /asset-output/nodejs/',
-          ],
-        },
-      }),
-      compatibleRuntimes: [lambda.Runtime.NODEJS_18_X],
-      description: 'AWS SDK v3 for WebSocket handlers',
-    });
-
-    // Connect handler
+    // Connect handler (AWS SDK v3 is included in Node.js 18.x runtime)
     const connectFn = new lambda.Function(this, 'ConnectFunction', {
       functionName: `${Config.prefix}-ws-connect`,
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'connect.handler',
       code: lambda.Code.fromAsset(path.join(__dirname, '../../lambda/websocket')),
-      layers: [sdkLayer],
       environment: {
         CONNECTIONS_TABLE: connectionsTable.tableName,
       },
@@ -64,7 +48,6 @@ export class DashboardStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'disconnect.handler',
       code: lambda.Code.fromAsset(path.join(__dirname, '../../lambda/websocket')),
-      layers: [sdkLayer],
       environment: {
         CONNECTIONS_TABLE: connectionsTable.tableName,
       },
@@ -99,19 +82,7 @@ export class DashboardStack extends cdk.Stack {
       autoDeploy: true,
     });
 
-    // MSK Consumer Lambda
-    const consumerSg = new ec2.SecurityGroup(this, 'ConsumerSecurityGroup', {
-      vpc: props.vpc,
-      description: 'Security group for MSK consumer Lambda',
-      allowAllOutbound: true,
-    });
-
-    props.mskSecurityGroup.addIngressRule(
-      consumerSg,
-      ec2.Port.tcp(9098),
-      'Allow consumer Lambda to connect to MSK'
-    );
-
+    // MSK Consumer Lambda (uses Lambda security group from NetworkStack)
     const consumerRole = new iam.Role(this, 'ConsumerRole', {
       assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
       managedPolicies: [
@@ -142,11 +113,10 @@ export class DashboardStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'handler.handler',
       code: lambda.Code.fromAsset(path.join(__dirname, '../../lambda/consumer')),
-      layers: [sdkLayer],
       role: consumerRole,
       vpc: props.vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-      securityGroups: [consumerSg],
+      securityGroups: [props.lambdaSecurityGroup],
       timeout: cdk.Duration.minutes(5),
       memorySize: Config.lambda.consumerMemory,
       environment: {

@@ -15,7 +15,7 @@ import * as path from 'path';
 export interface DataGenStackProps extends cdk.StackProps {
   vpc: ec2.IVpc;
   mskCluster: msk.CfnCluster;
-  mskSecurityGroup: ec2.SecurityGroup;
+  lambdaSecurityGroup: ec2.SecurityGroup;
   dataBucket: s3.Bucket;
 }
 
@@ -23,18 +23,7 @@ export class DataGenStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: DataGenStackProps) {
     super(scope, id, props);
 
-    // Lambda security group
-    const lambdaSg = new ec2.SecurityGroup(this, 'LambdaSecurityGroup', {
-      vpc: props.vpc,
-      description: 'Security group for data gen Lambdas',
-      allowAllOutbound: true,
-    });
-
-    props.mskSecurityGroup.addIngressRule(
-      lambdaSg,
-      ec2.Port.tcp(9098),
-      'Allow Lambda to connect to MSK'
-    );
+    // Use Lambda security group from NetworkStack (already has MSK ingress rules configured)
 
     // Producer Lambda
     const producerRole = new iam.Role(this, 'ProducerRole', {
@@ -64,11 +53,10 @@ export class DataGenStack extends cdk.Stack {
       role: producerRole,
       vpc: props.vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-      securityGroups: [lambdaSg],
+      securityGroups: [props.lambdaSecurityGroup],
       environment: {
         BOOTSTRAP_SERVERS: cdk.Fn.getAtt(props.mskCluster.logicalId, 'BootstrapBrokers').toString(),
         KAFKA_TOPIC: Config.msk.topics.telemetry,
-        AWS_REGION: this.region,
       },
     });
 
