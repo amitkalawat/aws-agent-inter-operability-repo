@@ -28,6 +28,7 @@ build/
 *.js
 *.d.ts
 !jest.config.js
+!**/lambda/**/*.js
 
 # Environment and secrets
 .env
