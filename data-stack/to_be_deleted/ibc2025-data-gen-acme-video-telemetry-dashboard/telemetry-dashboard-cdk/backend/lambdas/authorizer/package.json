@@ -1,9 +1,0 @@
-{
-  "name": "websocket-authorizer",
-  "version": "1.0.0",
-  "description": "WebSocket API Cognito authorizer",
-  "main": "wsAuthorizer.js",
-  "dependencies": {
-    "node-jose": "^2.2.0"
-  }
-}

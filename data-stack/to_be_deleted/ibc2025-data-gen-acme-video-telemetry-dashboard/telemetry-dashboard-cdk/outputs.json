@@ -1,9 +1,0 @@
-{
-  "TelemetryDashboardStack": {
-    "UserPoolClientId": "1t2m601pdpeffk5cfdlg0vnuaj",
-    "UserPoolId": "eu-central-1_jxG6OxTPv",
-    "WebSocketUrl": "wss://onn83m9z2b.execute-api.eu-central-1.amazonaws.com/prod",
-    "Region": "eu-central-1",
-    "FrontendUrl": "https://d22um2piuwyb63.cloudfront.net"
-  }
-}
