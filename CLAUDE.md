@@ -118,3 +118,33 @@ Agent and MCP settings in `agent-stack/cdk/lib/config/index.ts`:
 Frontend config in `agent-stack/frontend/acme-chat/src/config.ts`:
 - `cognito.userPoolId`, `cognito.appClientId`: Auth configuration
 - `agentcore.agentArn`: Agent runtime ARN for invocations
+
+## Testing Commands
+
+### Test AgentCore Agent via CLI
+```bash
+# Get Cognito access token (use access token, NOT id token)
+AUTH=$(aws cognito-idp initiate-auth --auth-flow USER_PASSWORD_AUTH \
+  --client-id <frontend-client-id> --auth-parameters USERNAME=admin@acme.com,PASSWORD=<password> \
+  --region us-west-2 --output json)
+ACCESS_TOKEN=$(echo "$AUTH" | jq -r '.AuthenticationResult.AccessToken')
+
+# Invoke agent
+curl -X POST "https://bedrock-agentcore.us-west-2.amazonaws.com/runtimes/<encoded-arn>/invocations?qualifier=DEFAULT" \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}" -H "Content-Type: application/json" \
+  -d '{"prompt": "hello"}'
+```
+
+### Test Athena Queries
+```bash
+# Athena requires explicit S3 output location
+S3_BUCKET="s3://acme-telemetry-data-<account>-us-west-2/athena-results/"
+aws athena start-query-execution --query-string "SELECT * FROM acme_telemetry.streaming_events LIMIT 10" \
+  --result-configuration OutputLocation=$S3_BUCKET --region us-west-2
+```
+
+### Additional Batch Tables
+- `customers` - subscription_tier, customer demographics (10K rows)
+- `titles` - movie/series/documentary catalog (1K rows)
+- `telemetry` - device_type usage data (100K rows)
+- `campaigns` - advertising campaigns with budgets (50 rows)
