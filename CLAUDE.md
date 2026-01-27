@@ -55,18 +55,19 @@ npm run build      # Production build
 
 ### Data Stack
 ```bash
-# MSK Cluster
-cd data-stack/ibc2025-data-gen-msk-repo-v2
-npm install && cdk deploy
-
-# Data Generators
-cd data-stack/ibc2025-data-gen-acme-video-telemetry-synthetic/cdk
-npm install && cdk deploy
-
-# Dashboard
-cd data-stack/ibc2025-data-gen-acme-video-telemetry-dashboard/telemetry-dashboard-cdk
-npm install && cdk deploy
+# Consolidated Data Stack (MSK, Firehose, Glue, Lambdas)
+cd data-stack/consolidated-data-stack
+npm install && npm run build && cdk deploy --all
 ```
+
+## MSK & Firehose Gotchas
+
+- **MSK Multi-VPC Connectivity**: Use Custom Resource with `updateConnectivity` API (not CfnCluster property)
+- **MSK Custom Resource IAM**: Create shared IAM role with all Kafka permissions to avoid race conditions
+- **MSK Configuration**: `ServerProperties` as plain string (SDK handles base64 encoding)
+- **Firehose MSK Source**: Requires cluster policy allowing `firehose.amazonaws.com` service principal
+- **Python Lambda Dependencies**: Use `@aws-cdk/aws-lambda-python-alpha` PythonFunction for proper bundling
+- **Kafka IAM Auth**: Token provider must extend `AbstractTokenProvider` from `kafka.sasl.oauth`
 
 ## Logs
 ```bash

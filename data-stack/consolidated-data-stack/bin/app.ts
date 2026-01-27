@@ -29,6 +29,7 @@ const dataGenStack = new DataGenStack(app, 'AcmeDataGenStack', {
   env: Config.env,
   vpc: networkStack.vpc,
   mskCluster: mskStack.cluster,
+  bootstrapServers: mskStack.bootstrapServers,
   lambdaSecurityGroup: networkStack.lambdaSecurityGroup,
   dataBucket: dataLakeStack.dataBucket,
 });

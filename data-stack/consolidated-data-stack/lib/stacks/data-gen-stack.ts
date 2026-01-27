@@ -1,13 +1,13 @@
 import * as cdk from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as lambdaPython from '@aws-cdk/aws-lambda-python-alpha';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
-import * as firehose from 'aws-cdk-lib/aws-kinesisfirehose';
-import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as msk from 'aws-cdk-lib/aws-msk';
-import * as logs from 'aws-cdk-lib/aws-logs';
+import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as firehose from 'aws-cdk-lib/aws-kinesisfirehose';
 import { Construct } from 'constructs';
 import { Config } from '../config';
 import * as path from 'path';
@@ -15,8 +15,9 @@ import * as path from 'path';
 export interface DataGenStackProps extends cdk.StackProps {
   vpc: ec2.IVpc;
   mskCluster: msk.CfnCluster;
+  bootstrapServers: string;
   lambdaSecurityGroup: ec2.SecurityGroup;
-  dataBucket: s3.Bucket;
+  dataBucket: s3.IBucket;
 }
 
 export class DataGenStack extends cdk.Stack {
@@ -43,11 +44,12 @@ export class DataGenStack extends cdk.Stack {
       resources: ['*'],
     }));
 
-    const producerFn = new lambda.Function(this, 'ProducerFunction', {
+    const producerFn = new lambdaPython.PythonFunction(this, 'ProducerFunction', {
       functionName: `${Config.prefix}-producer`,
       runtime: lambda.Runtime.PYTHON_3_11,
-      handler: 'handler.handler',
-      code: lambda.Code.fromAsset(path.join(__dirname, '../../lambda/producer')),
+      entry: path.join(__dirname, '../../lambda/producer'),
+      index: 'handler.py',
+      handler: 'handler',
       timeout: cdk.Duration.seconds(Config.lambda.timeout),
       memorySize: Config.lambda.producerMemory,
       role: producerRole,
@@ -55,7 +57,7 @@ export class DataGenStack extends cdk.Stack {
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
       securityGroups: [props.lambdaSecurityGroup],
       environment: {
-        BOOTSTRAP_SERVERS: cdk.Fn.getAtt(props.mskCluster.logicalId, 'BootstrapBrokers').toString(),
+        BOOTSTRAP_SERVERS: props.bootstrapServers,
         KAFKA_TOPIC: Config.msk.topics.telemetry,
       },
     });
@@ -94,33 +96,49 @@ export class DataGenStack extends cdk.Stack {
     });
     rule.addTarget(new targets.LambdaFunction(generatorFn));
 
-    // Firehose delivery stream for MSK to S3
+    // Firehose IAM role for MSK to S3 delivery
     const firehoseRole = new iam.Role(this, 'FirehoseRole', {
       assumedBy: new iam.ServicePrincipal('firehose.amazonaws.com'),
     });
 
-    props.dataBucket.grantReadWrite(firehoseRole);
-
+    // Grant Firehose permissions to read from MSK
     firehoseRole.addToPolicy(new iam.PolicyStatement({
       actions: [
         'kafka:DescribeCluster',
+        'kafka:DescribeClusterV2',
         'kafka:GetBootstrapBrokers',
+        'kafka:CreateVpcConnection',
+        'kafka:GetClusterPolicy',
         'kafka-cluster:Connect',
         'kafka-cluster:ReadData',
         'kafka-cluster:DescribeTopic',
         'kafka-cluster:DescribeGroup',
+        'kafka-cluster:AlterGroup',
       ],
       resources: ['*'],
     }));
 
-    const firehoseLogGroup = new logs.LogGroup(this, 'FirehoseLogGroup', {
-      logGroupName: `/aws/firehose/${Config.prefix}-delivery`,
-      retention: logs.RetentionDays.ONE_WEEK,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-    });
+    // Grant Firehose EC2 permissions for VPC connectivity
+    firehoseRole.addToPolicy(new iam.PolicyStatement({
+      actions: [
+        'ec2:CreateNetworkInterface',
+        'ec2:CreateNetworkInterfacePermission',
+        'ec2:DescribeNetworkInterfaces',
+        'ec2:DeleteNetworkInterface',
+        'ec2:DescribeSecurityGroups',
+        'ec2:DescribeSubnets',
+        'ec2:DescribeVpcs',
+        'ec2:DescribeVpcAttribute',
+      ],
+      resources: ['*'],
+    }));
 
-    const deliveryStream = new firehose.CfnDeliveryStream(this, 'DeliveryStream', {
-      deliveryStreamName: `${Config.prefix}-delivery-stream`,
+    // Grant Firehose permissions to write to S3
+    props.dataBucket.grantReadWrite(firehoseRole);
+
+    // Firehose delivery stream: MSK -> S3
+    const deliveryStream = new firehose.CfnDeliveryStream(this, 'MskToS3DeliveryStream', {
+      deliveryStreamName: `${Config.prefix}-msk-to-s3`,
       deliveryStreamType: 'MSKAsSource',
       mskSourceConfiguration: {
         mskClusterArn: props.mskCluster.attrArn,
@@ -134,7 +152,7 @@ export class DataGenStack extends cdk.Stack {
         bucketArn: props.dataBucket.bucketArn,
         roleArn: firehoseRole.roleArn,
         prefix: 'telemetry/year=!{timestamp:yyyy}/month=!{timestamp:MM}/day=!{timestamp:dd}/hour=!{timestamp:HH}/',
-        errorOutputPrefix: 'errors/',
+        errorOutputPrefix: 'errors/!{firehose:error-output-type}/year=!{timestamp:yyyy}/month=!{timestamp:MM}/day=!{timestamp:dd}/',
         bufferingHints: {
           intervalInSeconds: Config.firehose.bufferInterval,
           sizeInMBs: Config.firehose.bufferSize,
@@ -142,15 +160,18 @@ export class DataGenStack extends cdk.Stack {
         compressionFormat: 'GZIP',
         cloudWatchLoggingOptions: {
           enabled: true,
-          logGroupName: firehoseLogGroup.logGroupName,
+          logGroupName: `/aws/firehose/${Config.prefix}-msk-to-s3`,
           logStreamName: 'delivery',
         },
       },
     });
 
+    // Ensure IAM policy is attached before Firehose is created
+    deliveryStream.node.addDependency(firehoseRole);
+
     // Outputs
     new cdk.CfnOutput(this, 'GeneratorFunctionArn', { value: generatorFn.functionArn });
     new cdk.CfnOutput(this, 'ProducerFunctionArn', { value: producerFn.functionArn });
-    new cdk.CfnOutput(this, 'DeliveryStreamName', { value: deliveryStream.deliveryStreamName! });
+    new cdk.CfnOutput(this, 'FirehoseDeliveryStreamArn', { value: deliveryStream.attrArn });
   }
 }

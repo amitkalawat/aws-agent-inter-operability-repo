@@ -4,21 +4,26 @@ from typing import Any
 
 from aws_msk_iam_sasl_signer import MSKAuthTokenProvider
 from kafka import KafkaProducer
+from kafka.sasl.oauth import AbstractTokenProvider
+
+
+class MSKTokenProvider(AbstractTokenProvider):
+    """Token provider for MSK IAM authentication."""
+
+    def token(self):
+        token, _ = MSKAuthTokenProvider.generate_auth_token(os.environ['AWS_REGION'])
+        return token
 
 
 def get_kafka_producer() -> KafkaProducer:
     """Create Kafka producer with IAM authentication."""
     bootstrap_servers = os.environ['BOOTSTRAP_SERVERS']
 
-    def msk_token_provider():
-        token, _ = MSKAuthTokenProvider.generate_auth_token(os.environ['AWS_REGION'])
-        return token
-
     return KafkaProducer(
         bootstrap_servers=bootstrap_servers.split(','),
         security_protocol='SASL_SSL',
         sasl_mechanism='OAUTHBEARER',
-        sasl_oauth_token_provider=msk_token_provider,
+        sasl_oauth_token_provider=MSKTokenProvider(),
         value_serializer=lambda v: json.dumps(v).encode('utf-8'),
         acks='all',
         retries=3,
