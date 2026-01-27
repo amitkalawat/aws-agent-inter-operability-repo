@@ -3,7 +3,7 @@ import { Construct } from 'constructs';
 import { Aws, CfnOutput, Duration, RemovalPolicy } from 'aws-cdk-lib';
 import { IUserPool, IUserPoolClient } from 'aws-cdk-lib/aws-cognito';
 import { ISecret } from 'aws-cdk-lib/aws-secretsmanager';
-import { Bucket, BlockPublicAccess, BucketEncryption } from 'aws-cdk-lib/aws-s3';
+import { Bucket, BlockPublicAccess, BucketEncryption, HttpMethods } from 'aws-cdk-lib/aws-s3';
 import {
   Runtime,
   AgentRuntimeArtifact,
@@ -51,6 +51,15 @@ export class McpServerConstruct extends Construct {
       encryption: BucketEncryption.S3_MANAGED,
       removalPolicy: props.removalPolicy ?? RemovalPolicy.DESTROY,
       autoDeleteObjects: (props.removalPolicy ?? RemovalPolicy.DESTROY) === RemovalPolicy.DESTROY,
+      cors: [
+        {
+          allowedMethods: [HttpMethods.GET, HttpMethods.HEAD],
+          allowedOrigins: ['*'],
+          allowedHeaders: ['*'],
+          exposedHeaders: ['ETag'],
+          maxAge: 3600,
+        },
+      ],
       lifecycleRules: [
         {
           id: 'ExpireGeneratedImages',
