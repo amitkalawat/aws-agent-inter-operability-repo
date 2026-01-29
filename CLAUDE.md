@@ -20,6 +20,12 @@ AWS Bedrock AgentCore demonstration with MCP (Model Context Protocol) integratio
 │   ├─ Cognito Authentication                                  │
 │   └─ AgentCore Memory                                        │
 ├─────────────────────────────────────────────────────────────┤
+│   MCP REGISTRY STACK (mcpregistry-stack/)                   │
+│   ├─ React Frontend → CloudFront                            │
+│   ├─ API Gateway + Lambda (Node.js)                         │
+│   ├─ DynamoDB (server registry with cached tools)           │
+│   └─ Cognito Auth (shared with agent-stack)                 │
+├─────────────────────────────────────────────────────────────┤
 │   DATA STACK (data-stack/)                                  │
 │   ├─ MSK Cluster (Kafka) → Kinesis Firehose → S3            │
 │   ├─ Lambda Data Generators (synthetic telemetry)           │
@@ -60,6 +66,17 @@ cd data-stack/consolidated-data-stack
 npm install && npm run build && cdk deploy --all
 ```
 
+### MCP Registry Stack
+```bash
+cd mcpregistry-stack
+npm install
+cd frontend/mcp-registry && npm install && npm run build && cd ../..
+npx cdk deploy
+```
+
+**Frontend URL**: Output as `McpRegistryStack.FrontendFrontendUrlE3736ECE`
+**Test User**: `testuser@acme.com` / `Testpass1@`
+
 ## MSK & Firehose Gotchas
 
 - **MSK Multi-VPC Connectivity**: Use Custom Resource with `updateConnectivity` API (not CfnCluster property)
@@ -68,6 +85,15 @@ npm install && npm run build && cdk deploy --all
 - **Firehose MSK Source**: Requires cluster policy allowing `firehose.amazonaws.com` service principal
 - **Python Lambda Dependencies**: Use `@aws-cdk/aws-lambda-python-alpha` PythonFunction for proper bundling
 - **Kafka IAM Auth**: Token provider must extend `AbstractTokenProvider` from `kafka.sasl.oauth`
+
+## MCP Server Invocation Gotchas
+
+- **MCP Auth Method**: MCP servers use OAuth with specific Cognito client (`AcmeMcpClientId`), not frontend client
+- **Client Credentials**: Use `acme-chatbot/mcp-credentials` secret for server-to-server MCP calls
+- **Accept Header**: Must include `application/json, text/event-stream` or get 406 error
+- **SSE Response**: MCP responses are Server-Sent Events format, parse with `event:` and `data:` lines
+- **Session ID**: Capture `mcp-session-id` header from initialize response, pass in subsequent requests
+- **TypeScript Lambdas**: Use `NodejsFunction` from `aws-cdk-lib/aws-lambda-nodejs` (not `Code.fromAsset`)
 
 ## Logs
 ```bash

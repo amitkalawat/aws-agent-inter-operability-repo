@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# CDK
+cdk.out/
+*.d.ts
+*.js
+!jest.config.js
+
+# TypeScript
+dist/
+
+# OS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+
+# Frontend build
+frontend/mcp-registry/build/
+frontend/mcp-registry/node_modules/
+
+# Logs
+*.log
