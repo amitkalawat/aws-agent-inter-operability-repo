@@ -75,7 +75,7 @@ npx cdk deploy
 ```
 
 **Frontend URL**: Output as `McpRegistryStack.FrontendFrontendUrlE3736ECE`
-**Test User**: `testuser@acme.com` / `Testpass1@`
+**Test User**: Create via Cognito console or use existing agent-stack user
 
 ## MSK & Firehose Gotchas
 

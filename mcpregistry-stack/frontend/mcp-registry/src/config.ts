@@ -2,9 +2,9 @@
 
 export const config = {
   cognito: {
-    userPoolId: 'us-west-2_5j3rJtNHl',
-    appClientId: '455f6cimejtaihn6g7ro9auak6',
-    region: 'us-west-2',
+    userPoolId: import.meta.env.VITE_COGNITO_USER_POOL_ID || '<YOUR_COGNITO_USER_POOL_ID>',
+    appClientId: import.meta.env.VITE_COGNITO_APP_CLIENT_ID || '<YOUR_COGNITO_APP_CLIENT_ID>',
+    region: import.meta.env.VITE_AWS_REGION || 'us-west-2',
   },
   api: {
     baseUrl: '/api',

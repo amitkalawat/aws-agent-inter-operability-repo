@@ -21,5 +21,11 @@ dist/
 frontend/mcp-registry/build/
 frontend/mcp-registry/node_modules/
 
+# Environment files (contain secrets)
+.env
+.env.local
+frontend/mcp-registry/.env
+frontend/mcp-registry/.env.local
+
 # Logs
 *.log
