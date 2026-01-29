@@ -25,5 +25,11 @@ export const config = {
   // Username mappings for simple login
   userMappings: {
     'admin': 'admin@acme.com'
-  } as Record<string, string>
+  } as Record<string, string>,
+
+  // External URLs
+  external: {
+    mcpRegistryUrl: process.env.REACT_APP_MCP_REGISTRY_URL || 'https://d2fyngzrxjpjlb.cloudfront.net',
+    telemetryDashboardUrl: process.env.REACT_APP_TELEMETRY_DASHBOARD_URL || 'https://d22um2piuwyb63.cloudfront.net'
+  }
 };

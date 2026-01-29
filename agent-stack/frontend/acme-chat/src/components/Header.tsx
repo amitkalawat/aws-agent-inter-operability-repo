@@ -1,5 +1,6 @@
 import React from 'react';
 import { User } from '../services/AuthService';
+import { config } from '../config';
 
 interface HeaderProps {
   user: User | null;
@@ -22,16 +23,16 @@ const Header: React.FC<HeaderProps> = ({ user, onLogout }) => {
         <div className="header-center">
           {user && (
             <div className="dashboard-buttons">
-              <button 
+              <button
                 className="dashboard-button"
-                onClick={() => window.open('https://d22um2piuwyb63.cloudfront.net/', '_blank')}
+                onClick={() => window.open(config.external.telemetryDashboardUrl, '_blank')}
                 title="Access Video Telemetry Dashboard"
               >
                 📊 Video Telemetry Dashboard
               </button>
-              <button 
+              <button
                 className="dashboard-button"
-                onClick={() => window.open('https://d1zugwkd4hiwal.cloudfront.net/login', '_blank')}
+                onClick={() => window.open(config.external.mcpRegistryUrl, '_blank')}
                 title="Access MCP Registry"
               >
                 🔧 MCP Registry
