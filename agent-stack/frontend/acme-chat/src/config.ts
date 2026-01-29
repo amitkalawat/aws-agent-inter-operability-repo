@@ -1,31 +1,21 @@
 // Configuration for ACME Corp AgentCore Chat Application
-// NOTE: Replace placeholder values with your actual AWS resource IDs after deployment
 export const config = {
   // AWS Cognito Configuration
   cognito: {
-    userPoolId: process.env.REACT_APP_COGNITO_USER_POOL_ID || '<YOUR_COGNITO_USER_POOL_ID>',
-    appClientId: process.env.REACT_APP_COGNITO_APP_CLIENT_ID || '<YOUR_COGNITO_APP_CLIENT_ID>',
+    userPoolId: process.env.REACT_APP_COGNITO_USER_POOL_ID || 'us-west-2_5j3rJtNHl',
+    appClientId: process.env.REACT_APP_COGNITO_APP_CLIENT_ID || '455f6cimejtaihn6g7ro9auak6',
+    domain: process.env.REACT_APP_COGNITO_DOMAIN || 'acme-agentcore.auth.us-west-2.amazoncognito.com',
     region: process.env.REACT_APP_AWS_REGION || 'us-west-2',
-    discoveryUrl: `https://cognito-idp.${process.env.REACT_APP_AWS_REGION || 'us-west-2'}.amazonaws.com/${process.env.REACT_APP_COGNITO_USER_POOL_ID || '<YOUR_COGNITO_USER_POOL_ID>'}/.well-known/openid-configuration`
+    redirectUri: process.env.REACT_APP_REDIRECT_URI || `${window.location.origin}/callback`,
+    logoutUri: process.env.REACT_APP_LOGOUT_URI || window.location.origin,
   },
 
   // AgentCore Configuration
   agentcore: {
-    agentArn: process.env.REACT_APP_AGENTCORE_ARN || '<YOUR_AGENTCORE_ARN>',
+    agentArn: process.env.REACT_APP_AGENTCORE_ARN || 'arn:aws:bedrock-agentcore:us-west-2:878687028155:runtime/acme_chatbot-RB6voZDbJ7',
     region: process.env.REACT_APP_AWS_REGION || 'us-west-2',
     endpoint: `https://bedrock-agentcore.${process.env.REACT_APP_AWS_REGION || 'us-west-2'}.amazonaws.com`
   },
-
-  // Demo User Credentials (for testing only - use environment variables in production)
-  demo: {
-    username: process.env.REACT_APP_DEMO_USERNAME || 'admin@acme.com',
-    password: process.env.REACT_APP_DEMO_PASSWORD || '<SET_DEMO_PASSWORD>'
-  },
-
-  // Username mappings for simple login
-  userMappings: {
-    'admin': 'admin@acme.com'
-  } as Record<string, string>,
 
   // External URLs
   external: {

@@ -1,9 +1,3 @@
-import {
-  AuthenticationDetails,
-  CognitoUser,
-  CognitoUserPool,
-  CognitoUserSession,
-} from 'amazon-cognito-identity-js';
 import { config } from '../config';
 
 export interface User {
@@ -13,156 +7,251 @@ export interface User {
   idToken: string;
 }
 
-class AuthService {
-  private userPool: CognitoUserPool;
+interface TokenResponse {
+  access_token: string;
+  id_token: string;
+  refresh_token?: string;
+  expires_in: number;
+  token_type: string;
+}
 
-  /**
-   * Map simple usernames to email addresses
-   */
-  private mapUsername(username: string): string {
-    // Use centralized mappings from config
-    const mappings: Record<string, string> = config.userMappings || {};
-    
-    // Return mapped username or original if no mapping exists
-    return mappings[username.toLowerCase()] || username;
+// PKCE helper functions
+function generateRandomString(length: number): string {
+  const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+  const randomValues = new Uint8Array(length);
+  crypto.getRandomValues(randomValues);
+  return Array.from(randomValues, (v) => charset[v % charset.length]).join('');
+}
+
+async function generateCodeChallenge(verifier: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(verifier);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  const bytes = new Uint8Array(digest);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+function parseJwt(token: string): Record<string, unknown> {
+  const base64Url = token.split('.')[1];
+  const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+  const jsonPayload = decodeURIComponent(
+    atob(base64)
+      .split('')
+      .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+      .join('')
+  );
+  return JSON.parse(jsonPayload);
+}
+
+class AuthServiceClass {
+  private readonly TOKEN_KEY = 'acme_chat_tokens';
+  private readonly VERIFIER_KEY = 'acme_chat_code_verifier';
+
+  // Redirect to Cognito hosted UI for login
+  async login(): Promise<void> {
+    const codeVerifier = generateRandomString(64);
+    const codeChallenge = await generateCodeChallenge(codeVerifier);
+
+    // Store verifier for token exchange
+    sessionStorage.setItem(this.VERIFIER_KEY, codeVerifier);
+
+    const params = new URLSearchParams({
+      client_id: config.cognito.appClientId,
+      response_type: 'code',
+      scope: 'openid email profile',
+      redirect_uri: config.cognito.redirectUri,
+      code_challenge: codeChallenge,
+      code_challenge_method: 'S256',
+    });
+
+    const loginUrl = `https://${config.cognito.domain}/oauth2/authorize?${params.toString()}`;
+    window.location.href = loginUrl;
   }
 
-  /**
-   * Reverse map email addresses to display names for UI
-   */
-  private reverseMapUsername(email: string): string {
-    const mappings: Record<string, string> = config.userMappings || {};
-    
-    // Find the key that maps to this email
-    for (const [displayName, mappedEmail] of Object.entries(mappings)) {
-      if (mappedEmail.toLowerCase() === email.toLowerCase()) {
-        return displayName;
-      }
+  // Handle OAuth callback - exchange code for tokens
+  async handleCallback(code: string): Promise<User> {
+    const codeVerifier = sessionStorage.getItem(this.VERIFIER_KEY);
+    if (!codeVerifier) {
+      throw new Error('No code verifier found. Please try logging in again.');
     }
-    
-    // Return original email if no reverse mapping found
-    return email;
-  }
 
-  constructor() {
-    this.userPool = new CognitoUserPool({
-      UserPoolId: config.cognito.userPoolId,
-      ClientId: config.cognito.appClientId,
+    const tokenUrl = `https://${config.cognito.domain}/oauth2/token`;
+
+    const params = new URLSearchParams({
+      grant_type: 'authorization_code',
+      client_id: config.cognito.appClientId,
+      code: code,
+      redirect_uri: config.cognito.redirectUri,
+      code_verifier: codeVerifier,
     });
-  }
 
-  /**
-   * Sign in user with username and password
-   */
-  signIn(username: string, password: string): Promise<User> {
-    return new Promise((resolve, reject) => {
-      // Map username to email if needed
-      const mappedUsername = this.mapUsername(username);
-      
-      const authenticationDetails = new AuthenticationDetails({
-        Username: mappedUsername,
-        Password: password,
-      });
-
-      const cognitoUser = new CognitoUser({
-        Username: mappedUsername,
-        Pool: this.userPool,
-      });
-
-      // Use USER_PASSWORD_AUTH flow instead of SRP (SRP doesn't work with admin-created users)
-      cognitoUser.setAuthenticationFlowType('USER_PASSWORD_AUTH');
-
-      cognitoUser.authenticateUser(authenticationDetails, {
-        onSuccess: (session: CognitoUserSession) => {
-          const accessToken = session.getAccessToken().getJwtToken();
-          const idToken = session.getIdToken().getJwtToken();
-          
-          // Extract email from ID token
-          const idTokenPayload = session.getIdToken().payload;
-          const email = idTokenPayload.email || username;
-
-          const user: User = {
-            username: this.reverseMapUsername(mappedUsername),
-            email,
-            accessToken,
-            idToken,
-          };
-
-          resolve(user);
-        },
-        onFailure: (error) => {
-          reject(new Error(error.message || 'Authentication failed'));
-        },
-        mfaRequired: () => {
-          reject(new Error('MFA is required but not supported in this demo'));
-        },
-        newPasswordRequired: () => {
-          reject(new Error('New password required but not supported in this demo'));
-        },
-      });
+    const response = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: params.toString(),
     });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('Token exchange failed:', error);
+      throw new Error('Failed to exchange code for tokens');
+    }
+
+    const tokens: TokenResponse = await response.json();
+
+    // Clear the verifier
+    sessionStorage.removeItem(this.VERIFIER_KEY);
+
+    // Store tokens
+    this.storeTokens(tokens);
+
+    return this.getUserFromTokens(tokens);
   }
 
-  /**
-   * Sign out current user
-   */
+  // Sign out - clear local tokens and redirect to Cognito logout
   signOut(): Promise<void> {
     return new Promise((resolve) => {
-      const cognitoUser = this.userPool.getCurrentUser();
-      if (cognitoUser) {
-        cognitoUser.signOut();
-      }
+      localStorage.removeItem(this.TOKEN_KEY);
+
+      const params = new URLSearchParams({
+        client_id: config.cognito.appClientId,
+        logout_uri: config.cognito.logoutUri,
+      });
+
+      const logoutUrl = `https://${config.cognito.domain}/logout?${params.toString()}`;
+      window.location.href = logoutUrl;
       resolve();
     });
   }
 
-  /**
-   * Get current user session
-   */
-  getCurrentUser(): Promise<User | null> {
-    return new Promise((resolve, reject) => {
-      const cognitoUser = this.userPool.getCurrentUser();
-      
-      if (!cognitoUser) {
-        resolve(null);
-        return;
+  // Get current user from stored tokens
+  async getCurrentUser(): Promise<User | null> {
+    const tokens = this.getStoredTokens();
+    if (!tokens) {
+      return null;
+    }
+
+    // Check if token is expired
+    const idTokenPayload = parseJwt(tokens.id_token);
+    const exp = idTokenPayload.exp as number;
+    if (Date.now() >= exp * 1000) {
+      // Token expired, try to refresh
+      if (tokens.refresh_token) {
+        try {
+          return await this.refreshTokens(tokens.refresh_token);
+        } catch {
+          localStorage.removeItem(this.TOKEN_KEY);
+          return null;
+        }
       }
+      localStorage.removeItem(this.TOKEN_KEY);
+      return null;
+    }
 
-      cognitoUser.getSession((error: Error | null, session: CognitoUserSession | null) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-
-        if (!session || !session.isValid()) {
-          resolve(null);
-          return;
-        }
-
-        const accessToken = session.getAccessToken().getJwtToken();
-        const idToken = session.getIdToken().getJwtToken();
-        const idTokenPayload = session.getIdToken().payload;
-        
-        const user: User = {
-          username: this.reverseMapUsername(cognitoUser.getUsername()),
-          email: idTokenPayload.email || cognitoUser.getUsername(),
-          accessToken,
-          idToken,
-        };
-
-        resolve(user);
-      });
-    });
+    return this.getUserFromTokens(tokens);
   }
 
-  /**
-   * Check if user is authenticated
-   */
-  isAuthenticated(): Promise<boolean> {
-    return this.getCurrentUser()
-      .then(user => user !== null)
-      .catch(() => false);
+  // Get access token for API calls
+  async getAccessToken(): Promise<string> {
+    const user = await this.getCurrentUser();
+    if (!user) {
+      throw new Error('No user logged in');
+    }
+    return user.accessToken;
+  }
+
+  // Get ID token for API Gateway Cognito authorizer
+  async getIdToken(): Promise<string> {
+    const user = await this.getCurrentUser();
+    if (!user) {
+      throw new Error('No user logged in');
+    }
+    return user.idToken;
+  }
+
+  // Check if user is authenticated
+  async isAuthenticated(): Promise<boolean> {
+    const user = await this.getCurrentUser();
+    return user !== null;
+  }
+
+  // Check if this is an OAuth callback
+  isCallback(): boolean {
+    const params = new URLSearchParams(window.location.search);
+    return params.has('code');
+  }
+
+  // Get the authorization code from URL
+  getCallbackCode(): string | null {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('code');
+  }
+
+  private async refreshTokens(refreshToken: string): Promise<User> {
+    const tokenUrl = `https://${config.cognito.domain}/oauth2/token`;
+
+    const params = new URLSearchParams({
+      grant_type: 'refresh_token',
+      client_id: config.cognito.appClientId,
+      refresh_token: refreshToken,
+    });
+
+    const response = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: params.toString(),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to refresh tokens');
+    }
+
+    const tokens: TokenResponse = await response.json();
+    // Preserve refresh token if not returned
+    if (!tokens.refresh_token) {
+      tokens.refresh_token = refreshToken;
+    }
+
+    this.storeTokens(tokens);
+    return this.getUserFromTokens(tokens);
+  }
+
+  private storeTokens(tokens: TokenResponse): void {
+    localStorage.setItem(this.TOKEN_KEY, JSON.stringify(tokens));
+  }
+
+  private getStoredTokens(): TokenResponse | null {
+    const stored = localStorage.getItem(this.TOKEN_KEY);
+    if (!stored) {
+      return null;
+    }
+    try {
+      return JSON.parse(stored);
+    } catch {
+      return null;
+    }
+  }
+
+  private getUserFromTokens(tokens: TokenResponse): User {
+    const idTokenPayload = parseJwt(tokens.id_token);
+    return {
+      username: (idTokenPayload.email as string) || (idTokenPayload['cognito:username'] as string) || 'unknown',
+      email: (idTokenPayload.email as string) || '',
+      accessToken: tokens.access_token,
+      idToken: tokens.id_token,
+    };
   }
 }
 
-export default new AuthService();
+export default new AuthServiceClass();
