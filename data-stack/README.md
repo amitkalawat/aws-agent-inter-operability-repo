@@ -1,153 +1,131 @@
 # Data Stack
 
-This stack contains the streaming data infrastructure for generating, processing, and analyzing ACME Corp telemetry data.
+Serverless streaming data infrastructure for generating, processing, and analyzing ACME Corp telemetry data.
 
 ## Architecture
 
 ```
 ┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│  Lambda         │────▶│   Amazon MSK     │────▶│  Kinesis        │
-│  (Generator)    │     │   (Kafka)        │     │  Firehose       │
+│  EventBridge    │────▶│  Generator       │────▶│  Producer       │
+│  (5 min)        │     │  Lambda          │     │  Lambda         │
 └─────────────────┘     └──────────────────┘     └─────────────────┘
                                                          │
                                                          ▼
 ┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│  MCP Server     │◀────│  Amazon Athena   │◀────│  S3 Data Lake   │
-│  (AgentCore)    │     │  (SQL Queries)   │     │  + Glue Catalog │
+│  MCP Server     │◀────│  Amazon Athena   │◀────│  Kinesis Data   │
+│  (AgentCore)    │     │  (SQL Queries)   │     │  Stream         │
 └─────────────────┘     └──────────────────┘     └─────────────────┘
+                               ▲                         │
+                               │                         ▼
+                        ┌──────────────────┐     ┌─────────────────┐
+                        │  Glue Catalog    │◀────│  Kinesis        │
+                        │                  │     │  Firehose → S3  │
+                        └──────────────────┘     └─────────────────┘
 ```
+
+## Stacks
+
+| Stack | Description |
+|-------|-------------|
+| `AcmeKinesisStack` | Kinesis Data Stream (On-Demand mode, 24hr retention) |
+| `AcmeDataLakeStack` | S3 bucket + Glue catalog tables |
+| `AcmeDataGenStack` | Generator/Producer Lambdas + Firehose delivery |
 
 ## Components
 
-### MSK Cluster (`ibc2025-data-gen-msk-repo-v2/`)
-Amazon Managed Streaming for Apache Kafka:
-- Serverless MSK cluster
-- IAM authentication
-- Topics: `acme-telemetry`
+### Kinesis Data Stream
+- **Mode**: On-Demand (auto-scales, no shard management)
+- **Retention**: 24 hours
+- **Encryption**: AWS managed key
 
-**Tech Stack**: AWS CDK (TypeScript)
+### Lambda Functions
+- **Generator**: Creates 1000 synthetic telemetry events per batch
+- **Producer**: Sends events to Kinesis using `put_records()`
 
-### Data Generators (`ibc2025-data-gen-acme-video-telemetry-synthetic/`)
-Lambda functions generating synthetic data:
-- **Generator**: Creates telemetry events
-- **Producer**: Sends events to MSK
-- **DataLoader**: Loads data to S3
-
-**Data Types**:
-- Video streaming events (start, pause, resume, stop, complete)
-- User engagement metrics
-- Content metadata
-
-**Tech Stack**: Python 3.11, AWS Lambda
-
-### Dashboard (`ibc2025-data-gen-acme-video-telemetry-dashboard/`)
-CloudWatch-based telemetry visualization:
-- Real-time metrics
-- Streaming analytics
-- Custom dashboards
-
-**Tech Stack**: AWS CDK (TypeScript), React
-
-### MCP Server (`ibc2025-mcp-data-generation-repo/`)
-Data Processing MCP server for agent queries:
-- Athena SQL query execution
-- Schema discovery
-- Real-time data access
-
-**Tech Stack**: Python 3.11, AWS Bedrock AgentCore Runtime
+### Firehose Delivery
+- **Source**: Kinesis Data Stream (native integration)
+- **Destination**: S3 with Hive partitioning (`year=/month=/day=/hour=`)
+- **Format**: GZIP compressed JSON
 
 ## Data Schema
 
-### ACME Telemetry Database
+**Database**: `acme_telemetry` | **Table**: `streaming_events`
 
-**Table: `streaming_events`**
 | Column | Type | Description |
 |--------|------|-------------|
 | event_id | STRING | Unique event identifier |
-| event_timestamp | VARCHAR | Event time (requires CAST to timestamp) |
+| event_timestamp | STRING | ISO 8601 timestamp |
 | event_type | STRING | 'start', 'pause', 'resume', 'stop', 'complete' |
-| user_id | STRING | User identifier |
-| content_id | STRING | Content identifier |
+| customer_id | STRING | Customer identifier |
+| title_id | STRING | Content identifier |
 | title_type | STRING | 'movie', 'series', 'documentary' |
-| device_type | STRING | Device used for streaming |
+| device_type | STRING | 'mobile', 'web', 'tv', 'tablet' |
 | quality | STRING | Stream quality |
-| duration_seconds | INT | Event duration |
+| watch_duration_seconds | INT | Watch duration |
+| completion_percentage | DOUBLE | Completion percentage |
 
 ## Deployment
 
-### Deploy MSK Cluster
-
 ```bash
-cd ibc2025-data-gen-msk-repo-v2
+cd data-stack/consolidated-data-stack
 npm install
-cdk bootstrap  # First time only
-cdk deploy
+npm run build
+cdk deploy --all
 ```
-
-### Deploy Data Generators
-
-```bash
-cd ibc2025-data-gen-acme-video-telemetry-synthetic
-cd cdk
-npm install
-cdk deploy
-```
-
-### Deploy Dashboard
-
-```bash
-cd ibc2025-data-gen-acme-video-telemetry-dashboard/telemetry-dashboard-cdk
-npm install
-cdk deploy
-```
-
-### Deploy MCP Server
-
-```bash
-cd ibc2025-mcp-data-generation-repo
-source .venv/bin/activate
-python deploy_mcp_server.py
-```
-
-The MCP server is deployed to AWS Bedrock AgentCore Runtime, not ECS.
-
-## CloudFormation Stacks
-
-| Stack Name | Description |
-|------------|-------------|
-| `SimpleMskStack-eu-central-1` | MSK Serverless cluster |
-| `AcmeStreamingData-Glue` | Glue catalog and crawlers |
-| `AcmeStreamingData-DataLake` | S3 buckets and Firehose |
-| `TelemetryDashboardStack` | CloudWatch dashboard |
 
 ## Query Examples
 
 ```sql
--- Recent streaming events
-SELECT * FROM acme_telemetry.streaming_events
-WHERE CAST(event_timestamp AS timestamp) > current_timestamp - interval '1' hour
-LIMIT 100;
+-- Total events
+SELECT COUNT(*) FROM acme_telemetry.streaming_events;
 
 -- Events by type
 SELECT event_type, COUNT(*) as count
 FROM acme_telemetry.streaming_events
-GROUP BY event_type;
+GROUP BY event_type
+ORDER BY count DESC;
 
--- Top content
-SELECT content_id, title_type, COUNT(*) as views
+-- Events by date
+SELECT SUBSTR(event_timestamp, 1, 10) as date, COUNT(*) as count
 FROM acme_telemetry.streaming_events
-WHERE event_type = 'start'
-GROUP BY content_id, title_type
-ORDER BY views DESC
-LIMIT 10;
+GROUP BY SUBSTR(event_timestamp, 1, 10)
+ORDER BY date DESC;
+
+-- Content engagement
+SELECT title_type, AVG(watch_duration_seconds) as avg_duration,
+       AVG(completion_percentage) as avg_completion
+FROM acme_telemetry.streaming_events
+GROUP BY title_type;
 ```
 
 ## Logs
 
 ```bash
-# Lambda logs
-aws logs tail /aws/lambda/AcmeTelemetry-Generator --region eu-central-1
+# Generator Lambda
+aws logs tail /aws/lambda/acme-data-generator --region us-west-2 --since 10m
 
-# MSK Producer logs
-aws logs tail /aws/lambda/AcmeTelemetry-Producer --region eu-central-1
+# Producer Lambda
+aws logs tail /aws/lambda/acme-data-producer --region us-west-2 --since 10m
+
+# Firehose delivery
+aws logs tail /aws/firehose/acme-data-kinesis-to-s3 --region us-west-2 --since 10m
+```
+
+## Manual Testing
+
+```bash
+# Invoke generator manually
+aws lambda invoke --function-name acme-data-generator --region us-west-2 /dev/stdout
+
+# Check Kinesis stream
+aws kinesis describe-stream-summary --stream-name acme-telemetry-stream --region us-west-2
+
+# Check S3 data
+aws s3 ls s3://acme-telemetry-data-<account>-us-west-2/telemetry/ --recursive | tail -10
+
+# Repair Athena partitions (after new data arrives)
+aws athena start-query-execution \
+  --query-string "MSCK REPAIR TABLE acme_telemetry.streaming_events" \
+  --result-configuration "OutputLocation=s3://acme-telemetry-data-<account>-us-west-2/athena-results/" \
+  --region us-west-2
 ```

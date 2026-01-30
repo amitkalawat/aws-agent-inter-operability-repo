@@ -27,10 +27,9 @@ AWS Bedrock AgentCore demonstration with MCP (Model Context Protocol) integratio
 │   └─ Cognito Auth (shared with agent-stack)                 │
 ├─────────────────────────────────────────────────────────────┤
 │   DATA STACK (data-stack/)                                  │
-│   ├─ MSK Cluster (Kafka) → Kinesis Firehose → S3            │
+│   ├─ Kinesis Data Stream → Kinesis Firehose → S3            │
 │   ├─ Lambda Data Generators (synthetic telemetry)           │
-│   ├─ Glue Catalog + Athena for SQL queries                  │
-│   └─ CloudWatch Dashboard                                    │
+│   └─ Glue Catalog + Athena for SQL queries                  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -61,7 +60,7 @@ npm run build      # Production build
 
 ### Data Stack
 ```bash
-# Consolidated Data Stack (MSK, Firehose, Glue, Lambdas)
+# Consolidated Data Stack (Kinesis, Firehose, Glue, Lambdas)
 cd data-stack/consolidated-data-stack
 npm install && npm run build && cdk deploy --all
 ```
@@ -77,14 +76,12 @@ npx cdk deploy
 **Frontend URL**: Output as `McpRegistryStack.FrontendFrontendUrlE3736ECE`
 **Test User**: Create via Cognito console or use existing agent-stack user
 
-## MSK & Firehose Gotchas
+## Data Stack Architecture
 
-- **MSK Multi-VPC Connectivity**: Use Custom Resource with `updateConnectivity` API (not CfnCluster property)
-- **MSK Custom Resource IAM**: Create shared IAM role with all Kafka permissions to avoid race conditions
-- **MSK Configuration**: `ServerProperties` as plain string (SDK handles base64 encoding)
-- **Firehose MSK Source**: Requires cluster policy allowing `firehose.amazonaws.com` service principal
-- **Python Lambda Dependencies**: Use `@aws-cdk/aws-lambda-python-alpha` PythonFunction for proper bundling
-- **Kafka IAM Auth**: Token provider must extend `AbstractTokenProvider` from `kafka.sasl.oauth`
+- **Kinesis Data Stream**: On-Demand mode (auto-scales), 24hr retention
+- **Firehose**: Native Kinesis integration, delivers to S3 with Hive partitioning
+- **Producer Lambda**: Uses boto3 `kinesis.put_records()` (no VPC needed)
+- **Generator Lambda**: EventBridge scheduled (5 min), generates 1000 synthetic events per batch
 
 ## MCP Server Invocation Gotchas
 
