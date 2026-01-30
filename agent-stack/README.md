@@ -75,25 +75,54 @@ agent-stack/
 
 ### Prerequisites
 - Node.js 18+
-- AWS CLI configured
+- AWS CLI configured with `jq` installed
 - AWS CDK installed (`npm install -g aws-cdk`)
 
 ### Deploy Everything
 
-```bash
-cd cdk
+**Important**: The frontend requires Cognito configuration that's only available after CDK deployment. Follow these steps in order:
 
-# Install dependencies
+```bash
+# 1. Install CDK dependencies
+cd cdk
 npm install
 
-# Build frontend
+# 2. Install frontend dependencies (but don't build yet)
 cd ../frontend/acme-chat
 npm install
-npm run build
 cd ../../cdk
 
-# Deploy stack
+# 3. Deploy CDK stack first (creates Cognito, Agent, etc.)
 cdk deploy
+
+# 4. Generate frontend .env from CloudFormation outputs
+cd ../frontend/acme-chat
+./scripts/generate-env.sh
+
+# 5. Build frontend with correct config
+npm run build
+
+# 6. Sync frontend to S3 and invalidate CloudFront
+BUCKET=$(aws cloudformation describe-stacks --stack-name AcmeAgentCoreStack \
+  --query 'Stacks[0].Outputs[?OutputKey==`FrontendS3BucketNameC6E6DF48`].OutputValue' \
+  --output text --region us-west-2)
+DIST_ID=$(aws cloudformation describe-stacks --stack-name AcmeAgentCoreStack \
+  --query 'Stacks[0].Outputs[?OutputKey==`FrontendDistributionId6CBC2EDF`].OutputValue' \
+  --output text --region us-west-2)
+
+aws s3 sync build s3://$BUCKET --delete --region us-west-2
+aws cloudfront create-invalidation --distribution-id $DIST_ID --paths "/*" --region us-west-2
+```
+
+### Quick Redeploy (After Stack Changes)
+
+If you've already deployed once and just need to update after a `cdk deploy`:
+
+```bash
+cd frontend/acme-chat
+./scripts/generate-env.sh    # Regenerate .env with new values
+npm run build                 # Rebuild with new config
+# Then sync to S3 as shown above
 ```
 
 ### Create Test User
