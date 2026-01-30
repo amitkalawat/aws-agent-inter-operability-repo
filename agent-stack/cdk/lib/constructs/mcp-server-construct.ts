@@ -1,9 +1,8 @@
 import * as path from 'path';
 import { Construct } from 'constructs';
-import { Aws, CfnOutput, Duration, RemovalPolicy } from 'aws-cdk-lib';
+import { CfnOutput, RemovalPolicy } from 'aws-cdk-lib';
 import { IUserPool, IUserPoolClient } from 'aws-cdk-lib/aws-cognito';
 import { ISecret } from 'aws-cdk-lib/aws-secretsmanager';
-import { Bucket, BlockPublicAccess, BucketEncryption, HttpMethods } from 'aws-cdk-lib/aws-s3';
 import {
   Runtime,
   AgentRuntimeArtifact,
@@ -39,40 +38,9 @@ export interface McpServerRuntime {
 
 export class McpServerConstruct extends Construct {
   public readonly runtimes: Map<string, McpServerRuntime> = new Map();
-  public readonly novaCanvasImageBucket: Bucket;
 
   constructor(scope: Construct, id: string, props: McpServerConstructProps) {
     super(scope, id);
-
-    // Create S3 bucket for Nova Canvas generated images
-    this.novaCanvasImageBucket = new Bucket(this, 'NovaCanvasImageBucket', {
-      bucketName: `${Config.mcpServers.novaCanvas.imageBucketPrefix}-${Aws.ACCOUNT_ID}`,
-      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
-      encryption: BucketEncryption.S3_MANAGED,
-      removalPolicy: props.removalPolicy ?? RemovalPolicy.DESTROY,
-      autoDeleteObjects: (props.removalPolicy ?? RemovalPolicy.DESTROY) === RemovalPolicy.DESTROY,
-      cors: [
-        {
-          allowedMethods: [HttpMethods.GET, HttpMethods.HEAD],
-          allowedOrigins: ['*'],
-          allowedHeaders: ['*'],
-          exposedHeaders: ['ETag'],
-          maxAge: 3600,
-        },
-      ],
-      lifecycleRules: [
-        {
-          id: 'ExpireGeneratedImages',
-          expiration: Duration.days(Config.mcpServers.novaCanvas.imageExpirationDays),
-          prefix: 'generated/',
-        },
-        {
-          id: 'ExpireVisualizations',
-          expiration: Duration.days(Config.mcpServers.novaCanvas.imageExpirationDays),
-          prefix: 'visualizations/',
-        },
-      ],
-    });
 
     // Define all MCP servers to deploy
     const mcpServers: McpServerConfig[] = [
@@ -119,58 +87,6 @@ export class McpServerConstruct extends Construct {
               's3:GetBucketLocation',
             ],
             resources: ['*'],
-          }),
-        ],
-      },
-      {
-        name: Config.mcpServers.rekognition.name,
-        dockerPath: Config.mcpServers.rekognition.dockerPath,
-        description: 'Amazon Rekognition image analysis MCP server',
-        additionalPolicies: [
-          new PolicyStatement({
-            effect: Effect.ALLOW,
-            actions: [
-              'rekognition:DetectLabels',
-              'rekognition:DetectText',
-              'rekognition:DetectFaces',
-              'rekognition:RecognizeCelebrities',
-              'rekognition:DetectModerationLabels',
-              's3:GetObject',
-            ],
-            resources: ['*'],
-          }),
-        ],
-      },
-      {
-        name: Config.mcpServers.novaCanvas.name,
-        dockerPath: Config.mcpServers.novaCanvas.dockerPath,
-        description: 'Amazon Nova Canvas image generation MCP server',
-        environmentVariables: {
-          IMAGE_OUTPUT_BUCKET: this.novaCanvasImageBucket.bucketName,
-          // Nova Canvas is only available in us-east-1, ap-northeast-1, eu-west-1
-          BEDROCK_REGION: 'us-east-1',
-        },
-        additionalPolicies: [
-          new PolicyStatement({
-            effect: Effect.ALLOW,
-            actions: [
-              'bedrock:InvokeModel',
-            ],
-            resources: [
-              // Nova Canvas is only available in us-east-1, so we need cross-region access
-              'arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-canvas-v1:0',
-            ],
-          }),
-          new PolicyStatement({
-            effect: Effect.ALLOW,
-            actions: [
-              's3:PutObject',
-              's3:GetObject',
-            ],
-            resources: [
-              this.novaCanvasImageBucket.bucketArn,
-              `${this.novaCanvasImageBucket.bucketArn}/*`,
-            ],
           }),
         ],
       },

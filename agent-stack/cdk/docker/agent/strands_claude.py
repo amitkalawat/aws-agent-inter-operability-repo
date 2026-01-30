@@ -48,8 +48,6 @@ def get_mcp_endpoints_from_env() -> Dict[str, str]:
     env_mapping = {
         'MCP_DOCS_URL': 'MCP_SERVER_AWS_DOCS_MCP_ENDPOINT',
         'MCP_DATAPROC_URL': 'MCP_SERVER_DATAPROC_MCP_ENDPOINT',
-        'MCP_REKOGNITION_URL': 'MCP_SERVER_REKOGNITION_MCP_ENDPOINT',
-        'MCP_NOVA_CANVAS_URL': 'MCP_SERVER_NOVA_CANVAS_MCP_ENDPOINT',
     }
 
     region = os.environ.get('AWS_REGION', 'us-west-2')
@@ -245,28 +243,6 @@ class MCPManager:
             print(f"Failed to create dataproc MCP client: {e}")
             raise
 
-    def create_rekognition_client(self) -> MCPClient:
-        """Create MCP client for Rekognition"""
-        try:
-            print("Initializing Rekognition MCP client...")
-            client = MCPClient(lambda: self.create_mcp_transport('MCP_REKOGNITION_URL'))
-            print("Rekognition MCP client initialized successfully")
-            return client
-        except Exception as e:
-            print(f"Failed to create Rekognition MCP client: {e}")
-            raise
-
-    def create_nova_canvas_client(self) -> MCPClient:
-        """Create MCP client for Nova Canvas"""
-        try:
-            print("Initializing Nova Canvas MCP client...")
-            client = MCPClient(lambda: self.create_mcp_transport('MCP_NOVA_CANVAS_URL'))
-            print("Nova Canvas MCP client initialized successfully")
-            return client
-        except Exception as e:
-            print(f"Failed to create Nova Canvas MCP client: {e}")
-            raise
-
 
 # Global instances
 mcp_manager = MCPManager()
@@ -383,13 +359,11 @@ if 'plt' in locals() and plt.get_fignums():
 def get_system_prompt(conversation_context: str = "") -> str:
     """Generate the system prompt with optional conversation context"""
 
-    base_prompt = """You're a helpful AI assistant powered by Claude for ACME Corp. You can search AWS documentation, analyze data, generate images, and help with cloud questions.
+    base_prompt = """You're a helpful AI assistant powered by Claude for ACME Corp. You can search AWS documentation, analyze data, and help with cloud questions.
 
 Available capabilities:
 - Search AWS documentation for services, best practices, and configuration guides
 - Query and analyze ACME Corp streaming data using Athena SQL
-- Generate images using Amazon Nova Canvas (for creative/artistic images)
-- Analyze images using Amazon Rekognition
 - Execute Python code for data visualization (charts, graphs, plots)
 
 Key guidelines:
@@ -424,12 +398,7 @@ The tool will:
 
 CRITICAL: When the tool returns a response with "s3_url", you MUST include the COMPLETE URL in your response using markdown: ![Chart Description](complete-s3-url-with-all-parameters)
 
-The URL will be long (500+ characters) with query parameters like X-Amz-Signature - this is expected. Never truncate it.
-
-NOVA CANVAS (for creative images, NOT charts):
-Use Nova Canvas for artistic images, logos, illustrations - NOT for data charts.
-
-When Nova Canvas returns an S3 presigned URL, include it in markdown format: ![Image Description](complete-url)"""
+The URL will be long (500+ characters) with query parameters like X-Amz-Signature - this is expected. Never truncate it."""
 
     return base_prompt + conversation_context if conversation_context else base_prompt
 
@@ -474,16 +443,6 @@ def create_agent_with_memory(payload: dict) -> Tuple[Agent, Any, list, str]:
             mcp_clients.append(('dataproc', mcp_manager.create_dataproc_client()))
         except Exception as e:
             print(f"DataProcessing client unavailable: {e}")
-
-        try:
-            mcp_clients.append(('rekognition', mcp_manager.create_rekognition_client()))
-        except Exception as e:
-            print(f"Rekognition client unavailable: {e}")
-
-        try:
-            mcp_clients.append(('nova_canvas', mcp_manager.create_nova_canvas_client()))
-        except Exception as e:
-            print(f"Nova Canvas client unavailable: {e}")
     else:
         print("MCP integration not configured - agent running without MCP tools")
 

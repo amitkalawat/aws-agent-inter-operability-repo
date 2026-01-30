@@ -29,7 +29,7 @@ export interface AcmeAgentCoreStackProps extends StackProps {
  * - Cognito User Pool for authentication
  * - Secrets Manager for MCP credentials
  * - AgentCore Memory for conversation persistence
- * - MCP Servers (AWS Docs, DataProcessing, Rekognition, Nova Canvas)
+ * - MCP Servers (AWS Docs, DataProcessing)
  * - Main Agent Runtime (Strands + Claude Haiku 4.5)
  * - Frontend (React app on S3 + CloudFront)
  */
@@ -98,7 +98,6 @@ export class AcmeAgentCoreStack extends Stack {
       mcpCredentials: secrets.mcpCredentials,
       memory: memory.memory,
       mcpServerEndpoints: mcpServers.getArns(),
-      visualizationBucket: mcpServers.novaCanvasImageBucket,
       removalPolicy,
     });
 

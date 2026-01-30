@@ -56,16 +56,12 @@ export const Config = {
       name: 'dataproc_mcp',
       dockerPath: '../aws-mcp-server-agentcore/aws-dataprocessing-mcp-server',
     },
-    rekognition: {
-      name: 'rekognition_mcp',
-      dockerPath: '../aws-mcp-server-agentcore/amazon-rekognition-mcp-server',
-    },
-    novaCanvas: {
-      name: 'nova_canvas_mcp',
-      dockerPath: '../aws-mcp-server-agentcore/nova-canvas-mcp-server',
-      imageBucketPrefix: 'acme-nova-canvas-images',
-      imageExpirationDays: 1,
-    },
+  },
+
+  // Visualization bucket for code interpreter charts
+  visualization: {
+    bucketPrefix: 'acme-visualizations',
+    expirationDays: 1,
   },
 
   // Frontend Configuration

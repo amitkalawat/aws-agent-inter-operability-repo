@@ -1,9 +1,9 @@
 import * as path from 'path';
 import { Construct } from 'constructs';
-import { CfnOutput, RemovalPolicy } from 'aws-cdk-lib';
+import { Aws, CfnOutput, Duration, RemovalPolicy } from 'aws-cdk-lib';
 import { IUserPool, IUserPoolClient } from 'aws-cdk-lib/aws-cognito';
 import { ISecret } from 'aws-cdk-lib/aws-secretsmanager';
-import { IBucket } from 'aws-cdk-lib/aws-s3';
+import { Bucket, BlockPublicAccess, BucketEncryption, HttpMethods } from 'aws-cdk-lib/aws-s3';
 import {
   Runtime,
   AgentRuntimeArtifact,
@@ -25,16 +25,41 @@ export interface AgentRuntimeConstructProps {
   readonly mcpCredentials: ISecret;
   readonly memory: IMemory;
   readonly mcpServerEndpoints: Record<string, string>;
-  readonly visualizationBucket: IBucket;
   readonly removalPolicy?: RemovalPolicy;
 }
 
 export class AgentRuntimeConstruct extends Construct {
   public readonly runtime: Runtime;
   public readonly endpoint: RuntimeEndpoint;
+  public readonly visualizationBucket: Bucket;
 
   constructor(scope: Construct, id: string, props: AgentRuntimeConstructProps) {
     super(scope, id);
+
+    // Create S3 bucket for code interpreter visualizations
+    this.visualizationBucket = new Bucket(this, 'VisualizationBucket', {
+      bucketName: `${Config.visualization.bucketPrefix}-${Aws.ACCOUNT_ID}`,
+      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+      encryption: BucketEncryption.S3_MANAGED,
+      removalPolicy: props.removalPolicy ?? RemovalPolicy.DESTROY,
+      autoDeleteObjects: (props.removalPolicy ?? RemovalPolicy.DESTROY) === RemovalPolicy.DESTROY,
+      cors: [
+        {
+          allowedMethods: [HttpMethods.GET, HttpMethods.HEAD],
+          allowedOrigins: ['*'],
+          allowedHeaders: ['*'],
+          exposedHeaders: ['ETag'],
+          maxAge: 3600,
+        },
+      ],
+      lifecycleRules: [
+        {
+          id: 'ExpireVisualizations',
+          expiration: Duration.days(Config.visualization.expirationDays),
+          prefix: 'visualizations/',
+        },
+      ],
+    });
 
     const dockerPath = path.join(__dirname, '../../docker/agent');
 
@@ -64,7 +89,7 @@ export class AgentRuntimeConstruct extends Construct {
         BEDROCK_MODEL_ID: Config.agent.model,
         MEMORY_ID: props.memory.memoryId,
         DOCKER_CONTAINER: '1',
-        VISUALIZATION_BUCKET: props.visualizationBucket.bucketName,
+        VISUALIZATION_BUCKET: this.visualizationBucket.bucketName,
         ...mcpEndpointEnvVars,
       },
     });
@@ -161,7 +186,7 @@ export class AgentRuntimeConstruct extends Construct {
           's3:GetObject',
         ],
         resources: [
-          `${props.visualizationBucket.bucketArn}/*`,
+          `${this.visualizationBucket.bucketArn}/*`,
         ],
       })
     );
