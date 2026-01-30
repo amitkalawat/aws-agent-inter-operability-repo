@@ -17,10 +17,10 @@ def handler(event: dict, context: Any) -> dict:
             'body': json.dumps({'message': 'No events to process'}),
         }
 
-    # Build Kinesis records with partition key
+    # Build Kinesis records with partition key (add newline for JSON Lines format)
     kinesis_records = [
         {
-            'Data': json.dumps(record).encode('utf-8'),
+            'Data': (json.dumps(record) + '\n').encode('utf-8'),
             'PartitionKey': record.get('customer_id', 'default'),
         }
         for record in events_list
