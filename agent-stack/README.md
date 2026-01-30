@@ -96,6 +96,43 @@ cd ../../cdk
 cdk deploy
 ```
 
+### Create Test User
+
+The deployment does not create users automatically. Create a test user via AWS CLI:
+
+```bash
+# Get the User Pool ID from CDK outputs
+USER_POOL_ID=$(aws cloudformation describe-stacks \
+  --stack-name AcmeAgentCoreStack \
+  --query 'Stacks[0].Outputs[?OutputKey==`AuthUserPoolId`].OutputValue' \
+  --output text --region us-west-2)
+
+# Create user with temporary password
+aws cognito-idp admin-create-user \
+  --user-pool-id $USER_POOL_ID \
+  --username admin@acme.com \
+  --user-attributes Name=email,Value=admin@acme.com Name=email_verified,Value=true \
+  --temporary-password 'TempPass123!' \
+  --region us-west-2
+
+# Set permanent password (skip force change on first login)
+aws cognito-idp admin-set-user-password \
+  --user-pool-id $USER_POOL_ID \
+  --username admin@acme.com \
+  --password 'YourSecurePassword123!' \
+  --permanent \
+  --region us-west-2
+```
+
+**Password Requirements**:
+- Minimum 8 characters
+- At least one uppercase letter
+- At least one lowercase letter
+- At least one digit
+- At least one symbol
+
+Alternatively, create users via the [AWS Cognito Console](https://console.aws.amazon.com/cognito/users).
+
 ## Configuration
 
 - **Region**: us-west-2
