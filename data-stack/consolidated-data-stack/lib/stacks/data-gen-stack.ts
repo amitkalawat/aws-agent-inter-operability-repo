@@ -1,22 +1,18 @@
 import * as cdk from 'aws-cdk-lib';
-import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
-import * as lambdaPython from '@aws-cdk/aws-lambda-python-alpha';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
-import * as msk from 'aws-cdk-lib/aws-msk';
+import * as kinesis from 'aws-cdk-lib/aws-kinesis';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as firehose from 'aws-cdk-lib/aws-kinesisfirehose';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
 import { Config } from '../config';
 import * as path from 'path';
 
 export interface DataGenStackProps extends cdk.StackProps {
-  vpc: ec2.IVpc;
-  mskCluster: msk.CfnCluster;
-  bootstrapServers: string;
-  lambdaSecurityGroup: ec2.SecurityGroup;
+  kinesisStream: kinesis.IStream;
   dataBucket: s3.IBucket;
 }
 
@@ -24,41 +20,27 @@ export class DataGenStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: DataGenStackProps) {
     super(scope, id, props);
 
-    // Use Lambda security group from NetworkStack (already has MSK ingress rules configured)
-
-    // Producer Lambda
+    // Producer Lambda - writes to Kinesis (no VPC needed)
     const producerRole = new iam.Role(this, 'ProducerRole', {
       assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
       managedPolicies: [
-        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaVPCAccessExecutionRole'),
+        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
       ],
     });
 
-    producerRole.addToPolicy(new iam.PolicyStatement({
-      actions: [
-        'kafka-cluster:Connect',
-        'kafka-cluster:WriteData',
-        'kafka-cluster:DescribeTopic',
-        'kafka-cluster:CreateTopic',
-      ],
-      resources: ['*'],
-    }));
+    // Grant Kinesis PutRecords permission
+    props.kinesisStream.grantWrite(producerRole);
 
-    const producerFn = new lambdaPython.PythonFunction(this, 'ProducerFunction', {
+    const producerFn = new lambda.Function(this, 'ProducerFunction', {
       functionName: `${Config.prefix}-producer`,
       runtime: lambda.Runtime.PYTHON_3_11,
-      entry: path.join(__dirname, '../../lambda/producer'),
-      index: 'handler.py',
-      handler: 'handler',
+      handler: 'handler.handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, '../../lambda/producer')),
       timeout: cdk.Duration.seconds(Config.lambda.timeout),
       memorySize: Config.lambda.producerMemory,
       role: producerRole,
-      vpc: props.vpc,
-      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-      securityGroups: [props.lambdaSecurityGroup],
       environment: {
-        BOOTSTRAP_SERVERS: props.bootstrapServers,
-        KAFKA_TOPIC: Config.msk.topics.telemetry,
+        STREAM_NAME: props.kinesisStream.streamName,
       },
     });
 
@@ -96,57 +78,39 @@ export class DataGenStack extends cdk.Stack {
     });
     rule.addTarget(new targets.LambdaFunction(generatorFn));
 
-    // Firehose IAM role for MSK to S3 delivery
+    // Firehose IAM role for Kinesis to S3 delivery
     const firehoseRole = new iam.Role(this, 'FirehoseRole', {
       assumedBy: new iam.ServicePrincipal('firehose.amazonaws.com'),
     });
 
-    // Grant Firehose permissions to read from MSK
-    firehoseRole.addToPolicy(new iam.PolicyStatement({
-      actions: [
-        'kafka:DescribeCluster',
-        'kafka:DescribeClusterV2',
-        'kafka:GetBootstrapBrokers',
-        'kafka:CreateVpcConnection',
-        'kafka:GetClusterPolicy',
-        'kafka-cluster:Connect',
-        'kafka-cluster:ReadData',
-        'kafka-cluster:DescribeTopic',
-        'kafka-cluster:DescribeGroup',
-        'kafka-cluster:AlterGroup',
-      ],
-      resources: ['*'],
-    }));
-
-    // Grant Firehose EC2 permissions for VPC connectivity
-    firehoseRole.addToPolicy(new iam.PolicyStatement({
-      actions: [
-        'ec2:CreateNetworkInterface',
-        'ec2:CreateNetworkInterfacePermission',
-        'ec2:DescribeNetworkInterfaces',
-        'ec2:DeleteNetworkInterface',
-        'ec2:DescribeSecurityGroups',
-        'ec2:DescribeSubnets',
-        'ec2:DescribeVpcs',
-        'ec2:DescribeVpcAttribute',
-      ],
-      resources: ['*'],
-    }));
+    // Grant Firehose permissions to read from Kinesis
+    props.kinesisStream.grantRead(firehoseRole);
 
     // Grant Firehose permissions to write to S3
     props.dataBucket.grantReadWrite(firehoseRole);
 
-    // Firehose delivery stream: MSK -> S3
-    const deliveryStream = new firehose.CfnDeliveryStream(this, 'MskToS3DeliveryStream', {
-      deliveryStreamName: `${Config.prefix}-msk-to-s3`,
-      deliveryStreamType: 'MSKAsSource',
-      mskSourceConfiguration: {
-        mskClusterArn: props.mskCluster.attrArn,
-        topicName: Config.msk.topics.telemetry,
-        authenticationConfiguration: {
-          connectivity: 'PRIVATE',
-          roleArn: firehoseRole.roleArn,
-        },
+    // CloudWatch log group for Firehose
+    const firehoseLogGroup = new logs.LogGroup(this, 'FirehoseLogGroup', {
+      logGroupName: `/aws/firehose/${Config.prefix}-kinesis-to-s3`,
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    const firehoseLogStream = new logs.LogStream(this, 'FirehoseLogStream', {
+      logGroup: firehoseLogGroup,
+      logStreamName: 'delivery',
+    });
+
+    // Grant Firehose permissions to write logs
+    firehoseLogGroup.grantWrite(firehoseRole);
+
+    // Firehose delivery stream: Kinesis -> S3 (native integration, no VPC needed)
+    const deliveryStream = new firehose.CfnDeliveryStream(this, 'KinesisToS3DeliveryStream', {
+      deliveryStreamName: `${Config.prefix}-kinesis-to-s3`,
+      deliveryStreamType: 'KinesisStreamAsSource',
+      kinesisStreamSourceConfiguration: {
+        kinesisStreamArn: props.kinesisStream.streamArn,
+        roleArn: firehoseRole.roleArn,
       },
       extendedS3DestinationConfiguration: {
         bucketArn: props.dataBucket.bucketArn,
@@ -160,8 +124,8 @@ export class DataGenStack extends cdk.Stack {
         compressionFormat: 'GZIP',
         cloudWatchLoggingOptions: {
           enabled: true,
-          logGroupName: `/aws/firehose/${Config.prefix}-msk-to-s3`,
-          logStreamName: 'delivery',
+          logGroupName: firehoseLogGroup.logGroupName,
+          logStreamName: firehoseLogStream.logStreamName,
         },
       },
     });

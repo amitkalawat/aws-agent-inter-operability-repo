@@ -4,25 +4,18 @@ export const Config = {
     region: 'us-west-2',
   },
   prefix: 'acme-data',
-  msk: {
-    clusterName: 'acme-msk-cluster',
-    kafkaVersion: '3.5.1',
-    brokerInstanceType: 'kafka.m5.large',
-    brokerCount: 3,
-    ebsVolumeSize: 100,
-    topics: {
-      telemetry: 'acme-telemetry',
-    },
+  kinesis: {
+    streamName: 'acme-telemetry-stream',
+    streamMode: 'ON_DEMAND',
+    retentionHours: 24,
   },
   s3: {
     dataBucketName: 'acme-telemetry-data',
-    logsBucketName: 'acme-msk-logs',
   },
   lambda: {
     generatorMemory: 256,
-    producerMemory: 512,
-    consumerMemory: 512,
-    timeout: 300,
+    producerMemory: 256,
+    timeout: 60,
   },
   glue: {
     databaseName: 'acme_telemetry',

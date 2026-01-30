@@ -1,56 +1,42 @@
+import boto3
 import json
 import os
 from typing import Any
 
-from aws_msk_iam_sasl_signer import MSKAuthTokenProvider
-from kafka import KafkaProducer
-from kafka.sasl.oauth import AbstractTokenProvider
-
-
-class MSKTokenProvider(AbstractTokenProvider):
-    """Token provider for MSK IAM authentication."""
-
-    def token(self):
-        token, _ = MSKAuthTokenProvider.generate_auth_token(os.environ['AWS_REGION'])
-        return token
-
-
-def get_kafka_producer() -> KafkaProducer:
-    """Create Kafka producer with IAM authentication."""
-    bootstrap_servers = os.environ['BOOTSTRAP_SERVERS']
-
-    return KafkaProducer(
-        bootstrap_servers=bootstrap_servers.split(','),
-        security_protocol='SASL_SSL',
-        sasl_mechanism='OAUTHBEARER',
-        sasl_oauth_token_provider=MSKTokenProvider(),
-        value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-        acks='all',
-        retries=3,
-    )
-
-
-producer = None
+kinesis = boto3.client('kinesis')
+STREAM_NAME = os.environ['STREAM_NAME']
 
 
 def handler(event: dict, context: Any) -> dict:
-    """Lambda handler - produces events to MSK."""
-    global producer
+    """Lambda handler - produces events to Kinesis."""
+    events_list = event.get('events', [])
 
-    if producer is None:
-        producer = get_kafka_producer()
+    if not events_list:
+        return {
+            'statusCode': 200,
+            'body': json.dumps({'message': 'No events to process'}),
+        }
 
-    topic = os.environ.get('KAFKA_TOPIC', 'acme-telemetry')
-    events = event.get('events', [])
+    # Build Kinesis records with partition key
+    kinesis_records = [
+        {
+            'Data': json.dumps(record).encode('utf-8'),
+            'PartitionKey': record.get('customer_id', 'default'),
+        }
+        for record in events_list
+    ]
 
-    for evt in events:
-        producer.send(topic, value=evt)
-
-    producer.flush()
+    # Send in batches of 500 (Kinesis limit)
+    total_sent = 0
+    for i in range(0, len(kinesis_records), 500):
+        batch = kinesis_records[i : i + 500]
+        response = kinesis.put_records(StreamName=STREAM_NAME, Records=batch)
+        total_sent += len(batch) - response.get('FailedRecordCount', 0)
 
     return {
         'statusCode': 200,
         'body': json.dumps({
-            'message': f'Produced {len(events)} events to {topic}',
+            'message': f'Sent {total_sent} events to {STREAM_NAME}',
+            'recordsProcessed': len(events_list),
         }),
     }

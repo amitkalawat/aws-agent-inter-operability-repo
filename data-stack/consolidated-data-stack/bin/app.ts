@@ -3,7 +3,7 @@ import 'source-map-support/register';
 import * as cdk from 'aws-cdk-lib';
 import { Config } from '../lib/config';
 import { NetworkStack } from '../lib/stacks/network-stack';
-import { MskStack } from '../lib/stacks/msk-stack';
+import { KinesisStack } from '../lib/stacks/kinesis-stack';
 import { DataGenStack } from '../lib/stacks/data-gen-stack';
 import { DataLakeStack } from '../lib/stacks/data-lake-stack';
 
@@ -13,12 +13,9 @@ const networkStack = new NetworkStack(app, 'AcmeNetworkStack', {
   env: Config.env,
 });
 
-const mskStack = new MskStack(app, 'AcmeMskStack', {
+const kinesisStack = new KinesisStack(app, 'AcmeKinesisStack', {
   env: Config.env,
-  vpc: networkStack.vpc,
-  mskSecurityGroup: networkStack.mskSecurityGroup,
 });
-mskStack.addDependency(networkStack);
 
 const dataLakeStack = new DataLakeStack(app, 'AcmeDataLakeStack', {
   env: Config.env,
@@ -26,13 +23,10 @@ const dataLakeStack = new DataLakeStack(app, 'AcmeDataLakeStack', {
 
 const dataGenStack = new DataGenStack(app, 'AcmeDataGenStack', {
   env: Config.env,
-  vpc: networkStack.vpc,
-  mskCluster: mskStack.cluster,
-  bootstrapServers: mskStack.bootstrapServers,
-  lambdaSecurityGroup: networkStack.lambdaSecurityGroup,
+  kinesisStream: kinesisStack.stream,
   dataBucket: dataLakeStack.dataBucket,
 });
-dataGenStack.addDependency(mskStack);
+dataGenStack.addDependency(kinesisStack);
 dataGenStack.addDependency(dataLakeStack);
 
 app.synth();
