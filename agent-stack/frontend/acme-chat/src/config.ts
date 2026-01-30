@@ -2,8 +2,8 @@
 export const config = {
   // AWS Cognito Configuration
   cognito: {
-    userPoolId: process.env.REACT_APP_COGNITO_USER_POOL_ID || 'us-west-2_5j3rJtNHl',
-    appClientId: process.env.REACT_APP_COGNITO_APP_CLIENT_ID || '455f6cimejtaihn6g7ro9auak6',
+    userPoolId: process.env.REACT_APP_COGNITO_USER_POOL_ID || 'us-west-2_DpzNMARcv',
+    appClientId: process.env.REACT_APP_COGNITO_APP_CLIENT_ID || '7vvt961c56raslq3aeun8emf8l',
     domain: process.env.REACT_APP_COGNITO_DOMAIN || 'acme-agentcore.auth.us-west-2.amazoncognito.com',
     region: process.env.REACT_APP_AWS_REGION || 'us-west-2',
     redirectUri: process.env.REACT_APP_REDIRECT_URI || `${window.location.origin}/callback`,
@@ -12,7 +12,7 @@ export const config = {
 
   // AgentCore Configuration
   agentcore: {
-    agentArn: process.env.REACT_APP_AGENTCORE_ARN || 'arn:aws:bedrock-agentcore:us-west-2:878687028155:runtime/acme_chatbot-RB6voZDbJ7',
+    agentArn: process.env.REACT_APP_AGENTCORE_ARN || 'arn:aws:bedrock-agentcore:us-west-2:878687028155:runtime/acme_chatbot-LZ92J48N6z',
     region: process.env.REACT_APP_AWS_REGION || 'us-west-2',
     endpoint: `https://bedrock-agentcore.${process.env.REACT_APP_AWS_REGION || 'us-west-2'}.amazonaws.com`
   },

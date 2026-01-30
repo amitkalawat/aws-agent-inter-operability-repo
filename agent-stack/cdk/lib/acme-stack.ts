@@ -112,6 +112,12 @@ export class AcmeAgentCoreStack extends Stack {
     });
 
     // ========================================
+    // 7. Update Cognito with CloudFront URLs
+    // ========================================
+    // This must happen after CloudFront is created to resolve the circular dependency
+    auth.setFrontendCallbackUrls(frontend.distributionUrl);
+
+    // ========================================
     // Store public properties
     // ========================================
     this.frontendUrl = frontend.distributionUrl;

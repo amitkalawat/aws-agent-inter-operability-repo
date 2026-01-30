@@ -7,6 +7,7 @@ import {
 import {
   UserPool,
   UserPoolClient,
+  CfnUserPoolClient,
   AccountRecovery,
   Mfa,
   StringAttribute,
@@ -28,6 +29,7 @@ export class CognitoConstruct extends Construct {
   public readonly mcpClient: IUserPoolClient;
   public readonly discoveryUrl: string;
   public readonly cognitoDomain: string;
+  private readonly frontendCfnClient: CfnUserPoolClient;
 
   constructor(scope: Construct, id: string, props?: CognitoConstructProps) {
     super(scope, id);
@@ -75,6 +77,7 @@ export class CognitoConstruct extends Construct {
     });
 
     // Frontend App Client (public, no secret - for React app)
+    // Note: OAuth callback URLs are set later by setFrontendCallbackUrls() after CloudFront is created
     this.frontendClient = this.userPool.addClient('FrontendClient', {
       userPoolClientName: Config.cognito.frontendClientName,
       generateSecret: false,
@@ -85,13 +88,16 @@ export class CognitoConstruct extends Construct {
       },
       oAuth: {
         flows: {
-          implicitCodeGrant: true,
+          authorizationCodeGrant: true, // Use code flow for PKCE (not implicit)
         },
         scopes: [
           OAuthScope.EMAIL,
           OAuthScope.OPENID,
           OAuthScope.PROFILE,
         ],
+        // Callback URLs will be set after CloudFront is created
+        callbackUrls: ['https://localhost:3000/callback'], // Placeholder for local dev
+        logoutUrls: ['https://localhost:3000'],
       },
       supportedIdentityProviders: [
         UserPoolClientIdentityProvider.COGNITO,
@@ -101,9 +107,10 @@ export class CognitoConstruct extends Construct {
       refreshTokenValidity: Duration.days(Config.cognito.tokenValidity.refreshToken),
       preventUserExistenceErrors: true,
       enableTokenRevocation: true,
-      readAttributes: this.userPool.identityProviders.length > 0 ? undefined : undefined,
-      writeAttributes: this.userPool.identityProviders.length > 0 ? undefined : undefined,
     });
+
+    // Get the underlying CfnUserPoolClient for later callback URL updates
+    this.frontendCfnClient = this.frontendClient.node.defaultChild as CfnUserPoolClient;
 
     // Add a domain for OAuth flows (required for client credentials)
     const domainPrefix = `${Config.naming.projectPrefix}-agentcore`;
@@ -190,5 +197,25 @@ export class CognitoConstruct extends Construct {
       description: 'Cognito OIDC Discovery URL',
       exportName: 'AcmeDiscoveryUrl',
     });
+  }
+
+  /**
+   * Set the frontend callback URLs after CloudFront distribution is created.
+   * This solves the circular dependency: Cognito needs CloudFront URL, but
+   * CloudFront is created after Cognito.
+   *
+   * @param frontendUrl The CloudFront distribution URL (e.g., https://d123.cloudfront.net)
+   */
+  public setFrontendCallbackUrls(frontendUrl: string): void {
+    this.frontendCfnClient.callbackUrLs = [
+      frontendUrl,
+      `${frontendUrl}/callback`,
+      'http://localhost:3000',
+      'http://localhost:3000/callback',
+    ];
+    this.frontendCfnClient.logoutUrLs = [
+      frontendUrl,
+      'http://localhost:3000',
+    ];
   }
 }
