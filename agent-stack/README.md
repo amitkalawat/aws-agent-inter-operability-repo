@@ -99,19 +99,9 @@ cdk deploy
 cd ../frontend/acme-chat
 ./scripts/generate-env.sh
 
-# 5. Build frontend with correct config
+# 5. Build and deploy frontend
 npm run build
-
-# 6. Sync frontend to S3 and invalidate CloudFront
-BUCKET=$(aws cloudformation describe-stacks --stack-name AcmeAgentCoreStack \
-  --query 'Stacks[0].Outputs[?OutputKey==`FrontendS3BucketNameC6E6DF48`].OutputValue' \
-  --output text --region us-west-2)
-DIST_ID=$(aws cloudformation describe-stacks --stack-name AcmeAgentCoreStack \
-  --query 'Stacks[0].Outputs[?OutputKey==`FrontendDistributionId6CBC2EDF`].OutputValue' \
-  --output text --region us-west-2)
-
-aws s3 sync build s3://$BUCKET --delete --region us-west-2
-aws cloudfront create-invalidation --distribution-id $DIST_ID --paths "/*" --region us-west-2
+./scripts/deploy-frontend.sh
 ```
 
 ### Quick Redeploy (After Stack Changes)
@@ -120,9 +110,9 @@ If you've already deployed once and just need to update after a `cdk deploy`:
 
 ```bash
 cd frontend/acme-chat
-./scripts/generate-env.sh    # Regenerate .env with new values
-npm run build                 # Rebuild with new config
-# Then sync to S3 as shown above
+./scripts/generate-env.sh      # Regenerate .env with new values
+npm run build                   # Rebuild with new config
+./scripts/deploy-frontend.sh   # Sync to S3 and invalidate CloudFront
 ```
 
 ### Create Test User
