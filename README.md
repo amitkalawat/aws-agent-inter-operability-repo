@@ -4,7 +4,7 @@ This repository demonstrates AWS Bedrock AgentCore with MCP (Model Context Proto
 
 ## Architecture Overview
 
-The project is organized into three main stacks:
+The project is organized into two main stacks:
 
 ### Agent Stack (`agent-stack/`)
 Contains the AI agent infrastructure built with AWS Bedrock AgentCore:
@@ -23,13 +23,6 @@ Contains the streaming data infrastructure and analytics:
 - **Data Generation**: Lambda functions generating synthetic ACME Corp telemetry data
 - **Data Lake**: S3-based storage with Glue catalog for Athena queries
 
-### MCP Registry Stack (`mcpregistry-stack/`)
-A serverless application for browsing and managing MCP servers:
-
-- **Frontend**: React app for MCP server discovery
-- **Backend**: API Gateway + Lambda + DynamoDB
-- **Integration**: Fetches tools from deployed MCP servers
-
 ## AWS Services Used
 
 - **AWS Bedrock AgentCore**: Agent runtime, memory, and MCP server hosting
@@ -40,8 +33,6 @@ A serverless application for browsing and managing MCP servers:
 - **Amazon Athena**: SQL queries on data lake
 - **AWS Cognito**: Authentication
 - **Amazon CloudFront**: Frontend hosting
-- **Amazon DynamoDB**: MCP server registry storage
-- **Amazon API Gateway**: REST API for MCP registry
 
 ## Region
 
@@ -60,13 +51,8 @@ aws-agent-inter-operability-repo/
 │       ├── aws-documentation-mcp-server/
 │       └── aws-dataprocessing-mcp-server/
 │
-├── data-stack/                     # Streaming Data Infrastructure
-│   └── consolidated-data-stack/    # Kinesis, Firehose, Glue, Lambdas
-│
-└── mcpregistry-stack/              # MCP Server Registry
-    ├── lib/                        # CDK stack
-    ├── lambda/                     # API Lambda handlers
-    └── frontend/mcp-registry/      # React frontend
+└── data-stack/                     # Streaming Data Infrastructure
+    └── consolidated-data-stack/    # Kinesis, Firehose, Glue, Lambdas
 ```
 
 ## Quick Start
@@ -102,15 +88,6 @@ cd data-stack/consolidated-data-stack
 npm install
 npm run build
 cdk deploy --all
-```
-
-### Deploy MCP Registry Stack
-
-```bash
-cd mcpregistry-stack
-npm install
-cd frontend/mcp-registry && npm install && npm run build && cd ../..
-npx cdk deploy
 ```
 
 ## Features
