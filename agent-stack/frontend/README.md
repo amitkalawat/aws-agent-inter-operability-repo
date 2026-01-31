@@ -6,8 +6,8 @@ A modern React frontend for the ACME Corp AgentCore chatbot with Amazon Cognito 
 
 - **🔐 Cognito Authentication**: Secure login with Amazon Cognito User Pool
 - **🤖 AgentCore Integration**: Direct communication with Amazon Bedrock AgentCore
-- **💬 Real-time Chat**: Modern chat interface with typing indicators
-- **🎨 Modern UI**: Beautiful gradient design with glass morphism effects
+- **💬 Real-time Chat**: Modern chat interface with streaming responses
+- **🎨 Modern UI**: Clean design with responsive layout
 - **📱 Responsive**: Works on desktop and mobile devices
 - **⚡ Fast**: Built with React and TypeScript for optimal performance
 
@@ -40,31 +40,26 @@ A modern React frontend for the ACME Corp AgentCore chatbot with Amazon Cognito 
 
 ## 🔧 Configuration
 
-The app is pre-configured with the deployed AgentCore settings in `src/config.ts`:
+Configuration is managed via environment variables generated from CloudFormation outputs:
 
-```typescript
-export const config = {
-  cognito: {
-    userPoolId: 'eu-central-1_CF2vh6s7M',
-    appClientId: '3cbhcr57gvuh4ffnv6sqlha5eo',
-    region: 'eu-central-1'
-  },
-  agentcore: {
-    agentArn: 'arn:aws:bedrock-agentcore:eu-central-1:241533163649:runtime/strands_claude_getting_started_auth-nYQSK477I1',
-    region: 'eu-central-1'
-  },
-  demo: {
-    username: 'admin@acmecorp.com',
-    password: 'Admin@123456!'
-  }
-};
+```bash
+# Generate .env from deployed stack
+cd acme-chat
+./scripts/deploy-frontend.sh
 ```
 
-## 👤 Demo Account
+The `.env` file contains:
+```
+REACT_APP_COGNITO_USER_POOL_ID=us-west-2_XXXXXXXXX
+REACT_APP_COGNITO_APP_CLIENT_ID=XXXXXXXXXXXXXXXXXX
+REACT_APP_AGENTCORE_ARN=arn:aws:bedrock-agentcore:us-west-2:ACCOUNT:runtime/NAME
+```
 
-For quick testing, use the **"Use Demo Account"** button or login with:
-- **Username**: admin@acmecorp.com  
-- **Password**: Admin@123456!
+## 👤 Test Account
+
+Create a test user after deployment (see agent-stack/cdk/README.md for instructions):
+- **Username**: user1@test.com
+- **Password**: Abcd1234@
 
 ## 🛠 How It Works
 

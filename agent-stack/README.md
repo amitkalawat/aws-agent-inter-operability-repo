@@ -30,16 +30,14 @@ React TypeScript application with:
 AWS CDK stack that deploys:
 - Cognito User Pool for authentication
 - Main Agent Runtime (Claude Haiku 4.5)
-- 4 MCP Servers
+- 2 MCP Servers
 - AgentCore Memory
 - S3 + CloudFront for frontend
 
 ### MCP Servers (`aws-mcp-server-agentcore/`)
 Model Context Protocol servers:
 - **AWS Documentation** - Search AWS docs
-- **Data Processing** - Athena SQL queries
-- **Rekognition** - Image analysis
-- **Nova Canvas** - Image generation
+- **Data Processing** - Athena SQL queries on telemetry data
 
 ## Project Structure
 
@@ -66,9 +64,7 @@ agent-stack/
 │           └── services/         # API services
 └── aws-mcp-server-agentcore/     # MCP server implementations
     ├── aws-documentation-mcp-server/
-    ├── aws-dataprocessing-mcp-server/
-    ├── amazon-rekognition-mcp-server/
-    └── nova-canvas-mcp-server/
+    └── aws-dataprocessing-mcp-server/
 ```
 
 ## Deployment
@@ -87,20 +83,16 @@ agent-stack/
 cd cdk
 npm install
 
-# 2. Install frontend dependencies (but don't build yet)
+# 2. Install frontend dependencies
 cd ../frontend/acme-chat
 npm install
 cd ../../cdk
 
-# 3. Deploy CDK stack first (creates Cognito, Agent, etc.)
-cdk deploy
+# 3. Deploy CDK stack (creates Cognito, Agent, MCP servers, etc.)
+cdk deploy AcmeAgentCoreStack
 
-# 4. Generate frontend .env from CloudFormation outputs
+# 4. Deploy frontend (auto-generates .env from CloudFormation outputs)
 cd ../frontend/acme-chat
-./scripts/generate-env.sh
-
-# 5. Build and deploy frontend
-npm run build
 ./scripts/deploy-frontend.sh
 ```
 
@@ -110,10 +102,14 @@ If you've already deployed once and just need to update after a `cdk deploy`:
 
 ```bash
 cd frontend/acme-chat
-./scripts/generate-env.sh      # Regenerate .env with new values
-npm run build                   # Rebuild with new config
-./scripts/deploy-frontend.sh   # Sync to S3 and invalidate CloudFront
+./scripts/deploy-frontend.sh   # Regenerates .env, rebuilds, and deploys
 ```
+
+The `deploy-frontend.sh` script automatically:
+- Fetches fresh config from CloudFormation outputs
+- Generates new `.env` file
+- Builds the frontend
+- Syncs to S3 and invalidates CloudFront cache
 
 ### Create Test User
 
@@ -123,22 +119,22 @@ The deployment does not create users automatically. Create a test user via AWS C
 # Get the User Pool ID from CDK outputs
 USER_POOL_ID=$(aws cloudformation describe-stacks \
   --stack-name AcmeAgentCoreStack \
-  --query 'Stacks[0].Outputs[?OutputKey==`AuthUserPoolId`].OutputValue' \
+  --query 'Stacks[0].Outputs[?OutputKey==`CognitoUserPoolId`].OutputValue' \
   --output text --region us-west-2)
 
-# Create user with temporary password
+# Create user
 aws cognito-idp admin-create-user \
   --user-pool-id $USER_POOL_ID \
-  --username admin@acme.com \
-  --user-attributes Name=email,Value=admin@acme.com Name=email_verified,Value=true \
-  --temporary-password 'TempPass123!' \
+  --username user1@test.com \
+  --user-attributes Name=email,Value=user1@test.com Name=email_verified,Value=true \
+  --message-action SUPPRESS \
   --region us-west-2
 
-# Set permanent password (skip force change on first login)
+# Set permanent password
 aws cognito-idp admin-set-user-password \
   --user-pool-id $USER_POOL_ID \
-  --username admin@acme.com \
-  --password 'YourSecurePassword123!' \
+  --username user1@test.com \
+  --password 'Abcd1234@' \
   --permanent \
   --region us-west-2
 ```
@@ -161,10 +157,9 @@ Alternatively, create users via the [AWS Cognito Console](https://console.aws.am
 ## Features
 
 - **Conversation Memory**: Persistent conversation history via AgentCore Memory
-- **MCP Integration**: 4 MCP servers for AWS docs, data queries, image analysis, and image generation
+- **MCP Integration**: 2 MCP servers for AWS docs and Athena data queries
 - **Streaming Responses**: Real-time response streaming
 - **Code Interpreter**: Python code execution for data visualization
-- **Image Support**: Generate images (Nova Canvas) and analyze them (Rekognition)
 
 ## Logs
 

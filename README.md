@@ -4,7 +4,7 @@ This repository demonstrates AWS Bedrock AgentCore with MCP (Model Context Proto
 
 ## Architecture Overview
 
-The project is organized into two main stacks:
+The project is organized into three main stacks:
 
 ### Agent Stack (`agent-stack/`)
 Contains the AI agent infrastructure built with AWS Bedrock AgentCore:
@@ -12,29 +12,36 @@ Contains the AI agent infrastructure built with AWS Bedrock AgentCore:
 - **Frontend**: React TypeScript application with AWS Cognito authentication
 - **Backend**: Python Strands agent powered by Claude Haiku 4.5
 - **Memory**: AWS Bedrock AgentCore Memory for conversation persistence
-- **MCP Integration**: 4 MCP servers (AWS Docs, Data Processing, Rekognition, Nova Canvas)
+- **MCP Integration**: 2 MCP servers (AWS Docs, Data Processing)
 - **Code Interpreter**: Python execution for data visualization
 
 ### Data Stack (`data-stack/`)
 Contains the streaming data infrastructure and analytics:
 
-- **MSK Cluster**: Apache Kafka managed service for real-time data streaming
+- **Kinesis Data Stream**: On-Demand mode real-time data streaming
+- **Kinesis Firehose**: Delivers data to S3 with Hive partitioning
 - **Data Generation**: Lambda functions generating synthetic ACME Corp telemetry data
-- **Data Lake**: S3-based storage with Glue catalog for analytics
-- **Dashboard**: CloudWatch-based telemetry visualization
+- **Data Lake**: S3-based storage with Glue catalog for Athena queries
+
+### MCP Registry Stack (`mcpregistry-stack/`)
+A serverless application for browsing and managing MCP servers:
+
+- **Frontend**: React app for MCP server discovery
+- **Backend**: API Gateway + Lambda + DynamoDB
+- **Integration**: Fetches tools from deployed MCP servers
 
 ## AWS Services Used
 
 - **AWS Bedrock AgentCore**: Agent runtime, memory, and MCP server hosting
-- **Amazon MSK**: Managed Kafka for streaming
+- **Amazon Kinesis**: Data Stream and Firehose for streaming
 - **AWS Lambda**: Data generation and processing
-- **Amazon S3**: Data lake storage and image hosting
+- **Amazon S3**: Data lake storage
 - **AWS Glue**: Data catalog and ETL
 - **Amazon Athena**: SQL queries on data lake
 - **AWS Cognito**: Authentication
 - **Amazon CloudFront**: Frontend hosting
-- **Amazon Rekognition**: Image analysis
-- **Amazon Bedrock**: Nova Canvas image generation
+- **Amazon DynamoDB**: MCP server registry storage
+- **Amazon API Gateway**: REST API for MCP registry
 
 ## Region
 
@@ -51,15 +58,15 @@ aws-agent-inter-operability-repo/
 │   ├── frontend/acme-chat/         # React TypeScript app
 │   └── aws-mcp-server-agentcore/   # MCP server implementations
 │       ├── aws-documentation-mcp-server/
-│       ├── aws-dataprocessing-mcp-server/
-│       ├── amazon-rekognition-mcp-server/
-│       └── nova-canvas-mcp-server/
+│       └── aws-dataprocessing-mcp-server/
 │
-└── data-stack/                     # Streaming Data Infrastructure
-    ├── ibc2025-data-gen-msk-repo-v2/           # MSK cluster CDK
-    ├── ibc2025-data-gen-acme-video-telemetry-synthetic/  # Lambda data generators
-    ├── ibc2025-data-gen-acme-video-telemetry-dashboard/  # Dashboard CDK
-    └── ibc2025-mcp-data-generation-repo/       # Data processing MCP
+├── data-stack/                     # Streaming Data Infrastructure
+│   └── consolidated-data-stack/    # Kinesis, Firehose, Glue, Lambdas
+│
+└── mcpregistry-stack/              # MCP Server Registry
+    ├── lib/                        # CDK stack
+    ├── lambda/                     # API Lambda handlers
+    └── frontend/mcp-registry/      # React frontend
 ```
 
 ## Quick Start
@@ -91,23 +98,27 @@ cdk deploy
 ### Deploy Data Stack
 
 ```bash
-# Deploy MSK Cluster
-cd data-stack/ibc2025-data-gen-msk-repo-v2
+cd data-stack/consolidated-data-stack
 npm install
-cdk deploy
+npm run build
+cdk deploy --all
+```
 
-# Deploy Data Generators
-cd ../ibc2025-data-gen-acme-video-telemetry-synthetic
-cdk deploy
+### Deploy MCP Registry Stack
+
+```bash
+cd mcpregistry-stack
+npm install
+cd frontend/mcp-registry && npm install && npm run build && cd ../..
+npx cdk deploy
 ```
 
 ## Features
 
 - **Conversation Memory**: Persistent chat history via AgentCore Memory
-- **MCP Integration**: Query AWS docs, run Athena SQL, analyze/generate images
+- **MCP Integration**: Query AWS docs and run Athena SQL queries
 - **Streaming Responses**: Real-time response streaming
 - **Code Interpreter**: Python execution for charts and data visualization
-- **Image Support**: Generate images (Nova Canvas) and analyze them (Rekognition)
 
 ## Outputs
 
