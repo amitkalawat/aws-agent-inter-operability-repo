@@ -88,22 +88,27 @@ npm install
 cdk bootstrap
 ```
 
-### 3. Build Frontend
+### 3. Deploy CDK Stack
 
-Before deploying, build the React frontend:
+```bash
+cdk deploy AcmeAgentCoreStack
+```
+
+### 4. Deploy Frontend
+
+Use the deploy script which auto-generates config from CloudFormation:
 
 ```bash
 cd ../frontend/acme-chat
 npm install
-npm run build
-cd ../../cdk
+./scripts/deploy-frontend.sh
 ```
 
-### 4. Deploy Stack
-
-```bash
-cdk deploy
-```
+This script automatically:
+- Fetches Cognito/Agent config from CloudFormation outputs
+- Generates the `.env` file
+- Builds the React app
+- Deploys to S3 and invalidates CloudFront cache
 
 ## Post-Deployment Steps
 
@@ -322,6 +327,8 @@ curl -X POST \
 
 ## Troubleshooting
 
+> **Note**: The issues below have been fixed in the codebase. This section documents the root causes and solutions for reference.
+
 ### Common Issues
 
 **CDK Bootstrap Error**
@@ -343,30 +350,86 @@ cd ../frontend/acme-chat && npm run build
 - Ensure IAM user/role has sufficient permissions
 - Check CloudWatch Logs for detailed error messages
 
-**Cognito Authentication: "Incorrect username or password" Error**
+**Cognito Authentication: "Incorrect username or password" Error** ✅ FIXED
 
-When using admin-created users (via `admin-create-user` and `admin-set-user-password`), the default SRP (Secure Remote Password) authentication flow may not work correctly. This is because admin-created users don't have SRP verifiers properly initialized.
+When using admin-created users (via `admin-create-user` and `admin-set-user-password`), the Cognito Hosted UI's SRP (Secure Remote Password) authentication flow doesn't work correctly because admin-created users don't have SRP verifiers properly initialized.
 
-**Solution:** Configure the frontend to use `USER_PASSWORD_AUTH` flow instead of SRP:
+**Solution (already implemented):** The frontend uses direct Cognito API calls with `USER_PASSWORD_AUTH` flow instead of the Hosted UI:
 
 ```typescript
-// In AuthService.ts, before calling authenticateUser:
-cognitoUser.setAuthenticationFlowType('USER_PASSWORD_AUTH');
+// In AuthService.ts - loginWithCredentials() method
+const response = await fetch(
+  `https://cognito-idp.${region}.amazonaws.com/`,
+  {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-amz-json-1.1',
+      'X-Amz-Target': 'AWSCognitoIdentityProviderService.InitiateAuth',
+    },
+    body: JSON.stringify({
+      AuthFlow: 'USER_PASSWORD_AUTH',
+      ClientId: clientId,
+      AuthParameters: { USERNAME: email, PASSWORD: password },
+    }),
+  }
+);
 ```
 
-**Requirements:**
-1. The Cognito App Client must have `ALLOW_USER_PASSWORD_AUTH` enabled (configured in CDK)
-2. The frontend AuthService must set the authentication flow type before authenticating
+**Why this works:**
+1. Bypasses Hosted UI completely (no SRP)
+2. Cognito App Client has `ALLOW_USER_PASSWORD_AUTH` enabled (configured in CDK)
+3. Works reliably with admin-created users
 
-**Verifying the fix:**
+**Verifying:**
 ```bash
 # Test authentication via AWS CLI (should return tokens)
 aws cognito-idp initiate-auth \
   --client-id <ClientId> \
   --auth-flow USER_PASSWORD_AUTH \
-  --auth-parameters USERNAME=admin@acme.com,PASSWORD='YourPassword!' \
+  --auth-parameters 'USERNAME=user1@test.com,PASSWORD=Abcd1234@' \
   --region us-west-2
 ```
+
+**MCP Client Initialization Failed / Invalid Client Secret** ✅ FIXED
+
+This error occurs when the MCP credentials in Secrets Manager don't match the actual Cognito client secret. This can happen if:
+- The Cognito client was recreated (gets new secret)
+- The stack was updated but the secret wasn't synced
+
+**Solution (already implemented):** The CDK stack includes a Custom Resource (`SecretsConstruct`) that automatically syncs the Cognito client secret to Secrets Manager on every deployment. The agent also has a 5-minute secret cache TTL to pick up new secrets quickly.
+
+If you still encounter this issue (shouldn't happen with current implementation):
+
+1. Redeploy the CDK stack to trigger the secret sync:
+   ```bash
+   cdk deploy AcmeAgentCoreStack
+   ```
+
+2. Verify the secret was synced:
+   ```bash
+   aws secretsmanager get-secret-value \
+     --secret-id acme-chatbot/mcp-credentials \
+     --region us-west-2 \
+     --query 'SecretString' --output text | jq .
+   ```
+
+3. The agent caches secrets for 5 minutes, so wait briefly or send a new request.
+
+**Stale Frontend Configuration** ✅ FIXED
+
+If the frontend uses outdated Cognito or Agent ARN values after stack recreation.
+
+**Solution (already implemented):** The `deploy-frontend.sh` script auto-regenerates `.env` from CloudFormation outputs:
+```bash
+cd frontend/acme-chat
+./scripts/deploy-frontend.sh
+```
+
+This script:
+1. Fetches fresh values from CloudFormation outputs
+2. Generates a new `.env` file
+3. Rebuilds the frontend
+4. Deploys to S3 and invalidates CloudFront cache
 
 ### Debug Mode
 
@@ -374,6 +437,104 @@ Set `developmentMode: true` in `bin/app.ts` for:
 - DESTROY removal policy (easy cleanup)
 - Auto-delete S3 objects
 - Detailed CloudFormation outputs
+
+## Deployment Best Practices
+
+> **✅ Verified**: This workflow was tested with a full stack delete/recreate cycle and works correctly.
+
+### After Stack Delete/Recreate
+
+When you delete and recreate the stack, follow these steps:
+
+1. **Deploy the CDK stack:**
+   ```bash
+   cd agent-stack/cdk
+   cdk deploy AcmeAgentCoreStack
+   ```
+
+2. **Create test users** (User Pool is new, no users exist):
+   ```bash
+   # Get the new User Pool ID from stack outputs
+   USER_POOL_ID=$(aws cloudformation describe-stacks \
+     --stack-name AcmeAgentCoreStack \
+     --query 'Stacks[0].Outputs[?OutputKey==`CognitoUserPoolId`].OutputValue' \
+     --output text --region us-west-2)
+
+   # Create user
+   aws cognito-idp admin-create-user \
+     --user-pool-id $USER_POOL_ID \
+     --username user1@test.com \
+     --user-attributes Name=email,Value=user1@test.com Name=email_verified,Value=true \
+     --message-action SUPPRESS \
+     --region us-west-2
+
+   # Set permanent password
+   aws cognito-idp admin-set-user-password \
+     --user-pool-id $USER_POOL_ID \
+     --username user1@test.com \
+     --password 'Abcd1234@' \
+     --permanent \
+     --region us-west-2
+   ```
+
+3. **Deploy the frontend** (gets fresh config from CloudFormation):
+   ```bash
+   cd ../frontend/acme-chat
+   ./scripts/deploy-frontend.sh
+   ```
+
+4. **Verify deployment** (wait 1-2 min for CloudFront cache):
+   ```bash
+   # Test Cognito authentication
+   CLIENT_ID=$(aws cloudformation describe-stacks \
+     --stack-name AcmeAgentCoreStack \
+     --query 'Stacks[0].Outputs[?OutputKey==`CognitoAppClientId`].OutputValue' \
+     --output text --region us-west-2)
+
+   aws cognito-idp initiate-auth \
+     --client-id $CLIENT_ID \
+     --auth-flow USER_PASSWORD_AUTH \
+     --auth-parameters 'USERNAME=user1@test.com,PASSWORD=Abcd1234@' \
+     --region us-west-2 \
+     --query 'AuthenticationResult.AccessToken' \
+     --output text | head -c 20 && echo "... ✓ Auth working"
+   ```
+
+5. **Test the application**:
+   - Open the CloudFront URL from stack outputs
+   - Login with `user1@test.com` / `Abcd1234@`
+   - Send a chat message to verify agent connectivity
+
+### What's Automated vs Manual
+
+| Step | Automated? | Notes |
+|------|------------|-------|
+| MCP secret sync to Secrets Manager | ✅ Yes | Custom Resource runs on every CDK deploy |
+| Frontend .env generation | ✅ Yes | `deploy-frontend.sh` fetches from CloudFormation |
+| Frontend build & S3 upload | ✅ Yes | Part of `deploy-frontend.sh` |
+| CloudFront cache invalidation | ✅ Yes | Part of `deploy-frontend.sh` |
+| Test user creation | ❌ Manual | Required once per new User Pool |
+| Running `deploy-frontend.sh` | ❌ Manual | Run after CDK deploy |
+
+### Automated Safeguards
+
+The stack includes these safeguards to prevent configuration drift:
+
+| Safeguard | Description |
+|-----------|-------------|
+| **MCP Secret Sync** | Custom Resource syncs actual Cognito client secret to Secrets Manager on every CDK deploy |
+| **5-min Secret Cache** | Agent re-fetches secrets from Secrets Manager every 5 minutes |
+| **Auto-regenerate .env** | `deploy-frontend.sh` fetches fresh config from CloudFormation before building |
+| **Config Validation** | Frontend logs warnings if required environment variables are missing |
+
+### What Gets Synced Automatically
+
+| On CDK Deploy | On Frontend Deploy |
+|---------------|-------------------|
+| Cognito client secret → Secrets Manager | User Pool ID → .env |
+| Agent runtime updated | Client ID → .env |
+| MCP servers updated | Agent ARN → .env |
+| | Rebuilds with fresh config |
 
 ## Security Considerations
 

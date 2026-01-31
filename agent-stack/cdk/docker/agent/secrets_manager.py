@@ -23,7 +23,9 @@ class SecretsManager:
         self.region_name = region_name or AWS_REGION
         self.client = boto3.client('secretsmanager', region_name=self.region_name)
         self._cache: Dict[str, Dict[str, Any]] = {}
-        self._default_ttl = 3600  # 1 hour cache TTL
+        # 5 minute cache TTL - short enough to pick up secret changes after deployment
+        # while still reducing Secrets Manager API calls
+        self._default_ttl = 300
 
     def get_secret(self, secret_name: str, cache_ttl: Optional[int] = None) -> Dict[str, Any]:
         """

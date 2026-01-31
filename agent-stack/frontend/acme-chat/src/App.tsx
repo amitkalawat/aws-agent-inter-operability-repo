@@ -3,42 +3,7 @@ import './App.css';
 import AuthService, { User } from './services/AuthService';
 import ChatInterface from './components/ChatInterface';
 import Header from './components/Header';
-
-// Login page component with Cognito OAuth button
-const LoginPage: React.FC<{ onLogin: () => void; loading: boolean; error: string | null }> = ({
-  onLogin,
-  loading,
-  error
-}) => {
-  return (
-    <div className="login-container">
-      <div className="login-card">
-        <div className="login-header">
-          <h1>🚀 Agent Interoperability Demo</h1>
-          <p className="subtitle">Powered by Amazon Bedrock AgentCore</p>
-        </div>
-
-        {error && (
-          <div className="error-message">
-            <p>⚠️ {error}</p>
-          </div>
-        )}
-
-        <button
-          className="login-button"
-          onClick={onLogin}
-          disabled={loading}
-        >
-          {loading ? 'Redirecting...' : 'Sign In with Cognito'}
-        </button>
-
-        <p className="login-hint">
-          Click to sign in using AWS Cognito
-        </p>
-      </div>
-    </div>
-  );
-};
+import LoginForm from './components/LoginForm';
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -46,34 +11,8 @@ function App() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Check if this is an OAuth callback
-    const handleAuth = async () => {
-      const params = new URLSearchParams(window.location.search);
-      const code = params.get('code');
-      const errorParam = params.get('error');
-
-      if (errorParam) {
-        setError(params.get('error_description') || 'Authentication failed');
-        // Clean URL
-        window.history.replaceState({}, document.title, window.location.pathname);
-        setLoading(false);
-        return;
-      }
-
-      if (code) {
-        try {
-          const authenticatedUser = await AuthService.handleCallback(code);
-          setUser(authenticatedUser);
-          // Clean URL after successful auth
-          window.history.replaceState({}, document.title, window.location.pathname);
-        } catch (err) {
-          setError(err instanceof Error ? err.message : 'Failed to complete login');
-        }
-        setLoading(false);
-        return;
-      }
-
-      // No code in URL, check for existing session
+    // Check for existing session on mount
+    const checkSession = async () => {
       try {
         const currentUser = await AuthService.getCurrentUser();
         setUser(currentUser);
@@ -83,7 +22,7 @@ function App() {
       setLoading(false);
     };
 
-    handleAuth();
+    checkSession();
   }, []);
 
   useEffect(() => {
@@ -100,18 +39,24 @@ function App() {
     };
   }, [user, loading]);
 
-  const handleLogin = async () => {
+  const handleLogin = async (username: string, password: string) => {
     setError(null);
     setLoading(true);
-    await AuthService.login();
-    // This redirects to Cognito, so we won't reach here
+    try {
+      const authenticatedUser = await AuthService.loginWithCredentials(username, password);
+      setUser(authenticatedUser);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Authentication failed');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleLogout = async () => {
     try {
       setError(null);
       await AuthService.signOut();
-      // signOut redirects to Cognito logout, so we don't need setUser(null)
+      setUser(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Logout failed');
       console.error('Logout failed:', err);
@@ -135,7 +80,14 @@ function App() {
 
       <main className="main-content">
         {!user ? (
-          <LoginPage onLogin={handleLogin} loading={loading} error={error} />
+          <>
+            {error && (
+              <div className="auth-error-banner">
+                <p>⚠️ {error}</p>
+              </div>
+            )}
+            <LoginForm onLogin={handleLogin} loading={loading} />
+          </>
         ) : (
           <ChatInterface user={user} />
         )}

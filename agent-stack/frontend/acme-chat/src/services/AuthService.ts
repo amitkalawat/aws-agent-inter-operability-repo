@@ -54,7 +54,7 @@ class AuthServiceClass {
   private readonly TOKEN_KEY = 'acme_chat_tokens';
   private readonly VERIFIER_KEY = 'acme_chat_code_verifier';
 
-  // Redirect to Cognito hosted UI for login
+  // Redirect to Cognito hosted UI for login (kept for backward compatibility)
   async login(): Promise<void> {
     const codeVerifier = generateRandomString(64);
     const codeChallenge = await generateCodeChallenge(codeVerifier);
@@ -73,6 +73,51 @@ class AuthServiceClass {
 
     const loginUrl = `https://${config.cognito.domain}/oauth2/authorize?${params.toString()}`;
     window.location.href = loginUrl;
+  }
+
+  // Direct authentication using USER_PASSWORD_AUTH flow
+  // This bypasses the Hosted UI which uses SRP and may fail for admin-created users
+  async loginWithCredentials(email: string, password: string): Promise<User> {
+    const params = {
+      AuthFlow: 'USER_PASSWORD_AUTH',
+      ClientId: config.cognito.appClientId,
+      AuthParameters: {
+        USERNAME: email,
+        PASSWORD: password,
+      },
+    };
+
+    const response = await fetch(
+      `https://cognito-idp.${config.cognito.region}.amazonaws.com/`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-amz-json-1.1',
+          'X-Amz-Target': 'AWSCognitoIdentityProviderService.InitiateAuth',
+        },
+        body: JSON.stringify(params),
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Authentication failed');
+    }
+
+    const result = await response.json();
+    const authResult = result.AuthenticationResult;
+
+    // Convert to TokenResponse format and store
+    const tokens: TokenResponse = {
+      access_token: authResult.AccessToken,
+      id_token: authResult.IdToken,
+      refresh_token: authResult.RefreshToken,
+      expires_in: authResult.ExpiresIn,
+      token_type: authResult.TokenType,
+    };
+
+    this.storeTokens(tokens);
+    return this.getUserFromTokens(tokens);
   }
 
   // Handle OAuth callback - exchange code for tokens
@@ -117,18 +162,12 @@ class AuthServiceClass {
     return this.getUserFromTokens(tokens);
   }
 
-  // Sign out - clear local tokens and redirect to Cognito logout
+  // Sign out - clear local tokens
+  // When using direct auth (loginWithCredentials), we just clear local storage
+  // No need to redirect to Cognito logout since we're not using Hosted UI sessions
   signOut(): Promise<void> {
     return new Promise((resolve) => {
       localStorage.removeItem(this.TOKEN_KEY);
-
-      const params = new URLSearchParams({
-        client_id: config.cognito.appClientId,
-        logout_uri: config.cognito.logoutUri,
-      });
-
-      const logoutUrl = `https://${config.cognito.domain}/logout?${params.toString()}`;
-      window.location.href = logoutUrl;
       resolve();
     });
   }

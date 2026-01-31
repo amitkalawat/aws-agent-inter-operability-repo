@@ -1,7 +1,10 @@
 import { Construct } from 'constructs';
-import { RemovalPolicy, CfnOutput } from 'aws-cdk-lib';
+import { RemovalPolicy, CfnOutput, CustomResource, Duration } from 'aws-cdk-lib';
 import { Secret, ISecret } from 'aws-cdk-lib/aws-secretsmanager';
 import { IUserPool, IUserPoolClient } from 'aws-cdk-lib/aws-cognito';
+import { Provider } from 'aws-cdk-lib/custom-resources';
+import { Runtime, Code, Function } from 'aws-cdk-lib/aws-lambda';
+import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { Config } from '../config';
 
 export interface SecretsConstructProps {
@@ -19,9 +22,8 @@ export class SecretsConstruct extends Construct {
 
     const removalPolicy = props.removalPolicy ?? RemovalPolicy.DESTROY;
 
-    // Create secret for MCP credentials
-    // Note: The MCP client secret needs to be retrieved after stack deployment
-    // and stored in this secret along with other MCP configuration
+    // Create secret for MCP credentials (initially with placeholder)
+    // The Custom Resource below will update it with the actual Cognito client secret
     this.mcpCredentials = new Secret(this, 'McpCredentials', {
       secretName: Config.secrets.mcpCredentialsName,
       description: 'MCP Server credentials for ACME chatbot',
@@ -36,6 +38,96 @@ export class SecretsConstruct extends Construct {
       },
       removalPolicy: removalPolicy,
     });
+
+    // Lambda function to sync the actual Cognito client secret to Secrets Manager
+    const syncClientSecretFn = new Function(this, 'SyncClientSecretFn', {
+      runtime: Runtime.PYTHON_3_12,
+      handler: 'index.handler',
+      timeout: Duration.seconds(30),
+      code: Code.fromInline(`
+import boto3
+import json
+import cfnresponse
+
+def handler(event, context):
+    try:
+        if event['RequestType'] == 'Delete':
+            cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+            return
+
+        props = event['ResourceProperties']
+        user_pool_id = props['UserPoolId']
+        client_id = props['ClientId']
+        secret_arn = props['SecretArn']
+        cognito_domain = props['CognitoDomain']
+        region = props['Region']
+
+        # Get the actual Cognito client secret
+        cognito = boto3.client('cognito-idp')
+        response = cognito.describe_user_pool_client(
+            UserPoolId=user_pool_id,
+            ClientId=client_id
+        )
+        client_secret = response['UserPoolClient'].get('ClientSecret', '')
+
+        # Build the complete secret value
+        secret_value = json.dumps({
+            'MCP_COGNITO_POOL_ID': user_pool_id,
+            'MCP_COGNITO_REGION': region,
+            'MCP_COGNITO_CLIENT_ID': client_id,
+            'MCP_COGNITO_DOMAIN': cognito_domain,
+            'MCP_COGNITO_CLIENT_SECRET': client_secret,
+        })
+
+        # Update the secret with the actual client secret
+        sm = boto3.client('secretsmanager')
+        sm.put_secret_value(
+            SecretId=secret_arn,
+            SecretString=secret_value
+        )
+
+        cfnresponse.send(event, context, cfnresponse.SUCCESS, {
+            'Message': 'Secret synced successfully'
+        })
+    except Exception as e:
+        print(f"Error: {e}")
+        cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
+`),
+    });
+
+    // Grant permissions
+    syncClientSecretFn.addToRolePolicy(new PolicyStatement({
+      actions: ['cognito-idp:DescribeUserPoolClient'],
+      resources: [props.userPool.userPoolArn],
+    }));
+    syncClientSecretFn.addToRolePolicy(new PolicyStatement({
+      actions: ['secretsmanager:PutSecretValue'],
+      resources: [this.mcpCredentials.secretArn],
+    }));
+
+    // Create provider for the custom resource
+    const provider = new Provider(this, 'SyncClientSecretProvider', {
+      onEventHandler: syncClientSecretFn,
+    });
+
+    // Custom resource to sync the Cognito client secret to Secrets Manager
+    // This runs on every deployment to ensure the secret is always up-to-date
+    const syncSecretResource = new CustomResource(this, 'SyncClientSecret', {
+      serviceToken: provider.serviceToken,
+      properties: {
+        UserPoolId: props.userPool.userPoolId,
+        ClientId: props.mcpClient.userPoolClientId,
+        SecretArn: this.mcpCredentials.secretArn,
+        CognitoDomain: props.cognitoDomain,
+        Region: Config.aws.region,
+        // Force re-run on every deployment by including a timestamp
+        // This ensures the secret is always synced and SyncVersion is returned
+        DeployTimestamp: Date.now().toString(),
+      },
+    });
+
+    // Ensure sync happens after secret is created
+    syncSecretResource.node.addDependency(this.mcpCredentials);
 
     // Output
     new CfnOutput(this, 'McpCredentialsArn', {

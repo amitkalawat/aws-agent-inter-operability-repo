@@ -1,58 +1,107 @@
 #!/bin/bash
 # Deploy frontend to S3 and invalidate CloudFront cache
+# This script regenerates .env from CloudFormation, rebuilds, and deploys
 # Usage: ./scripts/deploy-frontend.sh [stack-name] [region]
+
+set -e
 
 STACK_NAME=${1:-AcmeAgentCoreStack}
 REGION=${2:-us-west-2}
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FRONTEND_DIR="$(dirname "$SCRIPT_DIR")"
 
-echo "Fetching deployment targets from CloudFormation stack: $STACK_NAME"
+cd "$FRONTEND_DIR"
+
+echo "=========================================="
+echo "Frontend Deployment"
+echo "Stack: $STACK_NAME"
+echo "Region: $REGION"
+echo "=========================================="
+
+# Step 1: Fetch CloudFormation outputs
+echo ""
+echo "Step 1: Fetching CloudFormation outputs..."
+
+OUTPUTS=$(aws cloudformation describe-stacks \
+  --stack-name "$STACK_NAME" \
+  --region "$REGION" \
+  --query 'Stacks[0].Outputs' \
+  --output json 2>/dev/null)
+
+if [ $? -ne 0 ] || [ "$OUTPUTS" == "null" ]; then
+  echo "Error: Could not fetch stack outputs. Make sure the stack is deployed."
+  exit 1
+fi
 
 # Get S3 bucket name
-BUCKET=$(aws cloudformation describe-stacks \
-  --stack-name "$STACK_NAME" \
-  --region "$REGION" \
-  --query 'Stacks[0].Outputs[?OutputKey==`FrontendS3BucketNameC6E6DF48`].OutputValue' \
-  --output text 2>/dev/null)
+BUCKET=$(echo "$OUTPUTS" | jq -r '.[] | select(.OutputKey=="FrontendS3BucketNameC6E6DF48") | .OutputValue')
 
 # Get CloudFront distribution ID
-DIST_ID=$(aws cloudformation describe-stacks \
-  --stack-name "$STACK_NAME" \
-  --region "$REGION" \
-  --query 'Stacks[0].Outputs[?OutputKey==`FrontendDistributionId6CBC2EDF`].OutputValue' \
-  --output text 2>/dev/null)
+DIST_ID=$(echo "$OUTPUTS" | jq -r '.[] | select(.OutputKey=="FrontendDistributionId6CBC2EDF") | .OutputValue')
 
-if [ -z "$BUCKET" ] || [ "$BUCKET" == "None" ]; then
+if [ -z "$BUCKET" ] || [ "$BUCKET" == "null" ]; then
   echo "Error: Could not find S3 bucket. Make sure the stack is deployed."
   exit 1
 fi
 
-if [ -z "$DIST_ID" ] || [ "$DIST_ID" == "None" ]; then
+if [ -z "$DIST_ID" ] || [ "$DIST_ID" == "null" ]; then
   echo "Error: Could not find CloudFront distribution ID. Make sure the stack is deployed."
   exit 1
 fi
 
-echo "S3 Bucket: $BUCKET"
-echo "CloudFront Distribution: $DIST_ID"
+echo "  S3 Bucket: $BUCKET"
+echo "  CloudFront Distribution: $DIST_ID"
 
-# Check if build directory exists
-if [ ! -d "build" ]; then
-  echo "Error: build/ directory not found. Run 'npm run build' first."
+# Step 2: Generate .env from CloudFormation outputs
+echo ""
+echo "Step 2: Generating .env from CloudFormation outputs..."
+
+USER_POOL_ID=$(echo "$OUTPUTS" | jq -r '.[] | select(.OutputKey=="AuthUserPoolIdC0605E59" or .OutputKey=="CognitoUserPoolId") | .OutputValue' | head -1)
+CLIENT_ID=$(echo "$OUTPUTS" | jq -r '.[] | select(.OutputKey=="AuthFrontendClientId0AADEF2F" or .OutputKey=="CognitoAppClientId") | .OutputValue' | head -1)
+AGENT_ARN=$(echo "$OUTPUTS" | jq -r '.[] | select(.OutputKey=="AgentAgentRuntimeArn5C979E42" or .OutputKey=="AgentArn") | .OutputValue' | head -1)
+
+if [ -z "$USER_POOL_ID" ] || [ -z "$CLIENT_ID" ] || [ -z "$AGENT_ARN" ]; then
+  echo "Error: Could not extract required Cognito/Agent values from stack outputs"
+  echo "  USER_POOL_ID: $USER_POOL_ID"
+  echo "  CLIENT_ID: $CLIENT_ID"
+  echo "  AGENT_ARN: $AGENT_ARN"
   exit 1
 fi
 
-# Sync to S3
+cat > .env << ENVFILE
+# Auto-generated from CloudFormation stack: $STACK_NAME
+# Generated at: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+REACT_APP_COGNITO_USER_POOL_ID=$USER_POOL_ID
+REACT_APP_COGNITO_APP_CLIENT_ID=$CLIENT_ID
+REACT_APP_AWS_REGION=$REGION
+REACT_APP_AGENTCORE_ARN=$AGENT_ARN
+REACT_APP_MCP_REGISTRY_URL=https://d2fyngzrxjpjlb.cloudfront.net
+REACT_APP_TELEMETRY_DASHBOARD_URL=https://d22um2piuwyb63.cloudfront.net
+ENVFILE
+
+echo "  Generated .env with:"
+echo "    REACT_APP_COGNITO_USER_POOL_ID=$USER_POOL_ID"
+echo "    REACT_APP_COGNITO_APP_CLIENT_ID=$CLIENT_ID"
+echo "    REACT_APP_AGENTCORE_ARN=$AGENT_ARN"
+
+# Step 3: Build the frontend
 echo ""
-echo "Syncing build/ to s3://$BUCKET..."
+echo "Step 3: Building frontend..."
+npm run build
+
+if [ ! -d "build" ]; then
+  echo "Error: build/ directory not found after build."
+  exit 1
+fi
+
+# Step 4: Sync to S3
+echo ""
+echo "Step 4: Syncing build/ to S3..."
 aws s3 sync build "s3://$BUCKET" --delete --region "$REGION"
 
-if [ $? -ne 0 ]; then
-  echo "Error: S3 sync failed"
-  exit 1
-fi
-
-# Invalidate CloudFront cache
+# Step 5: Invalidate CloudFront cache
 echo ""
-echo "Invalidating CloudFront cache..."
+echo "Step 5: Invalidating CloudFront cache..."
 INVALIDATION=$(aws cloudfront create-invalidation \
   --distribution-id "$DIST_ID" \
   --paths "/*" \
@@ -60,17 +109,21 @@ INVALIDATION=$(aws cloudfront create-invalidation \
   --query 'Invalidation.[Id,Status]' \
   --output text)
 
-echo "Invalidation: $INVALIDATION"
+echo "  Invalidation: $INVALIDATION"
 
 # Get frontend URL
-FRONTEND_URL=$(aws cloudformation describe-stacks \
-  --stack-name "$STACK_NAME" \
-  --region "$REGION" \
-  --query 'Stacks[0].Outputs[?OutputKey==`FrontendUrl`].OutputValue' \
-  --output text 2>/dev/null)
+FRONTEND_URL=$(echo "$OUTPUTS" | jq -r '.[] | select(.OutputKey=="FrontendUrl") | .OutputValue')
 
 echo ""
+echo "=========================================="
 echo "✅ Frontend deployed successfully!"
+echo "=========================================="
+echo ""
 echo "URL: $FRONTEND_URL"
+echo ""
+echo "Configuration deployed:"
+echo "  - Cognito User Pool: $USER_POOL_ID"
+echo "  - Cognito Client ID: $CLIENT_ID"
+echo "  - Agent ARN: $AGENT_ARN"
 echo ""
 echo "Note: CloudFront invalidation may take 1-2 minutes to complete."
