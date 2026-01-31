@@ -2,7 +2,70 @@
 
 This repository demonstrates AWS Bedrock AgentCore with MCP (Model Context Protocol) integration for building intelligent agents that can interact with real-time streaming data.
 
-## Architecture Overview
+## Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                                    USER                                              │
+│                                      │                                               │
+│                                      ▼                                               │
+│  ┌─────────────────────────────────────────────────────────────────────────────┐    │
+│  │                         AGENT STACK (agent-stack/)                           │    │
+│  │                                                                              │    │
+│  │   ┌──────────────┐      ┌─────────────┐      ┌────────────────────────┐     │    │
+│  │   │  CloudFront  │      │   Cognito   │      │  Bedrock AgentCore     │     │    │
+│  │   │  + S3        │      │  User Pool  │      │  ┌──────────────────┐  │     │    │
+│  │   │  (React App) │─────▶│  (Auth)     │─────▶│  │  Main Agent      │  │     │    │
+│  │   └──────────────┘      └─────────────┘      │  │  (Claude Haiku)  │  │     │    │
+│  │                                              │  │  + Memory        │  │     │    │
+│  │                                              │  │  + Code Interp.  │  │     │    │
+│  │                                              │  └────────┬─────────┘  │     │    │
+│  │                                              └───────────┼────────────┘     │    │
+│  │                                                          │                  │    │
+│  │                              ┌───────────────────────────┼───────────────┐  │    │
+│  │                              │         MCP Servers       │               │  │    │
+│  │                              │  ┌──────────────┐  ┌──────▼─────────┐     │  │    │
+│  │                              │  │  AWS Docs    │  │ Data Processing│     │  │    │
+│  │                              │  │  MCP Server  │  │ MCP Server     │     │  │    │
+│  │                              │  └──────────────┘  └───────┬────────┘     │  │    │
+│  │                              └────────────────────────────┼──────────────┘  │    │
+│  └───────────────────────────────────────────────────────────┼─────────────────┘    │
+│                                                              │                      │
+│                                                              ▼                      │
+│  ┌───────────────────────────────────────────────────────────────────────────────┐  │
+│  │                          DATA STACK (data-stack/)                              │  │
+│  │                                                                                │  │
+│  │   ┌──────────────┐     ┌──────────────┐     ┌──────────────┐                  │  │
+│  │   │ EventBridge  │────▶│  Generator   │────▶│  Producer    │                  │  │
+│  │   │ (5 min)      │     │  Lambda      │     │  Lambda      │                  │  │
+│  │   └──────────────┘     └──────────────┘     └──────┬───────┘                  │  │
+│  │                                                    │                          │  │
+│  │                                                    ▼                          │  │
+│  │   ┌──────────────┐     ┌──────────────┐     ┌──────────────┐                  │  │
+│  │   │   Athena     │◀────│ Glue Catalog │◀────│   Kinesis    │                  │  │
+│  │   │  (Queries)   │     │              │     │   Firehose   │                  │  │
+│  │   └──────┬───────┘     └──────────────┘     └──────┬───────┘                  │  │
+│  │          │                                         │                          │  │
+│  │          │              ┌──────────────┐           │                          │  │
+│  │          └─────────────▶│  S3 Data     │◀──────────┘                          │  │
+│  │                         │  Lake        │                                      │  │
+│  │                         └──────────────┘                                      │  │
+│  │                                                                                │  │
+│  └────────────────────────────────────────────────────────────────────────────────┘  │
+│                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Data Flow
+
+1. **User Interaction**: User accesses the React app via CloudFront, authenticates with Cognito
+2. **Agent Invocation**: Authenticated requests invoke the Bedrock AgentCore Runtime
+3. **MCP Tools**: Agent uses MCP servers to search AWS docs or query telemetry data
+4. **Data Queries**: Data Processing MCP server runs Athena SQL queries on the S3 data lake
+5. **Data Generation**: EventBridge triggers Lambda functions every 5 minutes to generate synthetic telemetry
+6. **Data Pipeline**: Kinesis Firehose delivers streaming data to S3 with Hive partitioning
+
+## Stack Overview
 
 The project is organized into two main stacks:
 
