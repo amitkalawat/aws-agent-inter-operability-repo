@@ -23,6 +23,6 @@ export const Config = {
   },
   firehose: {
     bufferInterval: 60,
-    bufferSize: 5,
+    bufferSize: 64, // Minimum 64 MB required for Parquet conversion
   },
 };
