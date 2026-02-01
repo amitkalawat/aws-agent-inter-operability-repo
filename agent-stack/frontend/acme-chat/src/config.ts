@@ -31,11 +31,5 @@ export const config = {
     agentArn: getRequiredEnv('REACT_APP_AGENTCORE_ARN'),
     region: region,
     endpoint: `https://bedrock-agentcore.${region}.amazonaws.com`
-  },
-
-  // External URLs
-  external: {
-    mcpRegistryUrl: process.env.REACT_APP_MCP_REGISTRY_URL || 'https://d2fyngzrxjpjlb.cloudfront.net',
-    telemetryDashboardUrl: process.env.REACT_APP_TELEMETRY_DASHBOARD_URL || 'https://d22um2piuwyb63.cloudfront.net'
   }
 };

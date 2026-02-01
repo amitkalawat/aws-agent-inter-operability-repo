@@ -1,6 +1,5 @@
 import React from 'react';
 import { User } from '../services/AuthService';
-import { config } from '../config';
 
 interface HeaderProps {
   user: User | null;
@@ -18,27 +17,6 @@ const Header: React.FC<HeaderProps> = ({ user, onLogout }) => {
           <span className="app-subtitle">
             Powered by Amazon Bedrock AgentCore
           </span>
-        </div>
-
-        <div className="header-center">
-          {user && (
-            <div className="dashboard-buttons">
-              <button
-                className="dashboard-button"
-                onClick={() => window.open(config.external.telemetryDashboardUrl, '_blank')}
-                title="Access Video Telemetry Dashboard"
-              >
-                📊 Video Telemetry Dashboard
-              </button>
-              <button
-                className="dashboard-button"
-                onClick={() => window.open(config.external.mcpRegistryUrl, '_blank')}
-                title="Access MCP Registry"
-              >
-                🔧 MCP Registry
-              </button>
-            </div>
-          )}
         </div>
 
         <div className="header-right">
