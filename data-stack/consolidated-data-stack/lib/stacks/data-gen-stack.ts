@@ -14,6 +14,8 @@ import * as path from 'path';
 export interface DataGenStackProps extends cdk.StackProps {
   kinesisStream: kinesis.IStream;
   dataBucket: s3.IBucket;
+  glueDatabaseName: string;
+  glueTableName: string;
 }
 
 export class DataGenStack extends cdk.Stack {
@@ -89,6 +91,20 @@ export class DataGenStack extends cdk.Stack {
     // Grant Firehose permissions to write to S3
     props.dataBucket.grantReadWrite(firehoseRole);
 
+    // Grant Firehose permissions for Glue (required for Parquet conversion)
+    firehoseRole.addToPolicy(new iam.PolicyStatement({
+      actions: [
+        'glue:GetTable',
+        'glue:GetTableVersion',
+        'glue:GetTableVersions',
+      ],
+      resources: [
+        `arn:aws:glue:${this.region}:${this.account}:catalog`,
+        `arn:aws:glue:${this.region}:${this.account}:database/${props.glueDatabaseName}`,
+        `arn:aws:glue:${this.region}:${this.account}:table/${props.glueDatabaseName}/${props.glueTableName}`,
+      ],
+    }));
+
     // CloudWatch log group for Firehose
     const firehoseLogGroup = new logs.LogGroup(this, 'FirehoseLogGroup', {
       logGroupName: `/aws/firehose/${Config.prefix}-kinesis-to-s3`,
@@ -121,11 +137,34 @@ export class DataGenStack extends cdk.Stack {
           intervalInSeconds: Config.firehose.bufferInterval,
           sizeInMBs: Config.firehose.bufferSize,
         },
-        compressionFormat: 'GZIP',
+        compressionFormat: 'UNCOMPRESSED', // Parquet handles compression internally
         cloudWatchLoggingOptions: {
           enabled: true,
           logGroupName: firehoseLogGroup.logGroupName,
           logStreamName: firehoseLogStream.logStreamName,
+        },
+        // Convert JSON to Parquet using Glue table schema
+        dataFormatConversionConfiguration: {
+          enabled: true,
+          inputFormatConfiguration: {
+            deserializer: {
+              openXJsonSerDe: {},
+            },
+          },
+          outputFormatConfiguration: {
+            serializer: {
+              parquetSerDe: {
+                compression: 'SNAPPY',
+              },
+            },
+          },
+          schemaConfiguration: {
+            catalogId: this.account,
+            databaseName: props.glueDatabaseName,
+            tableName: props.glueTableName,
+            region: this.region,
+            roleArn: firehoseRole.roleArn,
+          },
         },
       },
     });

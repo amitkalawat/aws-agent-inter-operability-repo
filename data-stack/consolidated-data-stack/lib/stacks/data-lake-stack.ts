@@ -62,15 +62,15 @@ export class DataLakeStack extends cdk.Stack {
         description: 'Video streaming telemetry events',
         tableType: 'EXTERNAL_TABLE',
         parameters: {
-          'classification': 'json',
-          'compressionType': 'gzip',
+          'classification': 'parquet',
+          'parquet.compression': 'SNAPPY',
         },
         storageDescriptor: {
           location: `s3://${this.dataBucket.bucketName}/telemetry/`,
-          inputFormat: 'org.apache.hadoop.mapred.TextInputFormat',
-          outputFormat: 'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat',
+          inputFormat: 'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat',
+          outputFormat: 'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat',
           serdeInfo: {
-            serializationLibrary: 'org.openx.data.jsonserde.JsonSerDe',
+            serializationLibrary: 'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe',
           },
           columns: [
             { name: 'event_id', type: 'string' },

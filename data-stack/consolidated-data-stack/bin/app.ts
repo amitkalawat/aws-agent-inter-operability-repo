@@ -20,6 +20,8 @@ const dataGenStack = new DataGenStack(app, 'AcmeDataGenStack', {
   env: Config.env,
   kinesisStream: kinesisStack.stream,
   dataBucket: dataLakeStack.dataBucket,
+  glueDatabaseName: Config.glue.databaseName,
+  glueTableName: Config.glue.tableName,
 });
 dataGenStack.addDependency(kinesisStack);
 dataGenStack.addDependency(dataLakeStack);
