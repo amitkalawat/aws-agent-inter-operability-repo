@@ -124,34 +124,49 @@ aws-agent-inter-operability-repo/
 
 - AWS CLI configured with appropriate credentials
 - Node.js 18+ and npm
+- Docker (for building container images)
 - AWS CDK CLI (`npm install -g aws-cdk`)
 
-### Deploy Agent Stack
+### Full Deployment (Both Stacks)
+
+Deploy both stacks in order - data stack first (agent queries its Athena data):
 
 ```bash
-cd agent-stack/cdk
-
-# Install dependencies
-npm install
-
-# Build frontend
-cd ../frontend/acme-chat
-npm install
-npm run build
-cd ../../cdk
-
-# Deploy everything (Cognito, Agent, MCP servers, Frontend)
-cdk deploy
-```
-
-### Deploy Data Stack
-
-```bash
+# 1. Deploy Data Stack (Kinesis, Firehose, S3, Glue, Athena)
 cd data-stack/consolidated-data-stack
-npm install
-npm run build
-cdk deploy --all
+npm install && npm run build && cdk deploy --all --require-approval never
+
+# 2. Build Frontend FIRST (required before CDK deploy)
+cd ../../agent-stack/frontend/acme-chat
+npm install && npm run build
+
+# 3. Deploy Agent Stack (Cognito, Agent, MCP servers)
+cd ../../cdk
+npm install && cdk deploy AcmeAgentCoreStack --require-approval never
+
+# 4. Deploy Frontend with correct config from CloudFormation
+cd ../frontend/acme-chat
+./scripts/deploy-frontend.sh
+
+# 5. Create test user
+USER_POOL_ID=$(aws cloudformation describe-stacks --stack-name AcmeAgentCoreStack \
+  --query 'Stacks[0].Outputs[?OutputKey==`CognitoUserPoolId`].OutputValue' --output text --region us-west-2)
+
+aws cognito-idp admin-create-user --user-pool-id $USER_POOL_ID \
+  --username user1@test.com --user-attributes Name=email,Value=user1@test.com Name=email_verified,Value=true \
+  --message-action SUPPRESS --region us-west-2
+
+aws cognito-idp admin-set-user-password --user-pool-id $USER_POOL_ID \
+  --username user1@test.com --password 'Abcd1234@' --permanent --region us-west-2
 ```
+
+> **Important**: The frontend must be built before `cdk deploy` because the CDK stack references the `build/` directory for S3 deployment.
+
+### Test Credentials
+
+After deployment, access the CloudFront URL and login with:
+- **Email**: `user1@test.com`
+- **Password**: `Abcd1234@`
 
 ## Features
 

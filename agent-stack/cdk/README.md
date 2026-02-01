@@ -88,26 +88,36 @@ npm install
 cdk bootstrap
 ```
 
-### 3. Deploy CDK Stack
+### 3. Build Frontend FIRST (Required)
+
+> **Critical**: The CDK stack references the frontend `build/` directory for S3 deployment. You must build the frontend before running `cdk deploy` or the deployment will fail.
+
+```bash
+cd ../frontend/acme-chat
+npm install
+npm run build
+cd ../../cdk
+```
+
+### 4. Deploy CDK Stack
 
 ```bash
 cdk deploy AcmeAgentCoreStack
 ```
 
-### 4. Deploy Frontend
+### 5. Deploy Frontend with Correct Config
 
-Use the deploy script which auto-generates config from CloudFormation:
+After CDK deployment, use the deploy script to regenerate config from CloudFormation outputs and redeploy:
 
 ```bash
 cd ../frontend/acme-chat
-npm install
 ./scripts/deploy-frontend.sh
 ```
 
 This script automatically:
 - Fetches Cognito/Agent config from CloudFormation outputs
-- Generates the `.env` file
-- Builds the React app
+- Generates the `.env` file with correct values
+- Rebuilds the React app
 - Deploys to S3 and invalidates CloudFront cache
 
 ## Post-Deployment Steps

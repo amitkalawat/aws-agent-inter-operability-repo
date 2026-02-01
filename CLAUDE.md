@@ -48,6 +48,9 @@ AWS Bedrock AgentCore demonstration with MCP (Model Context Protocol) integratio
 cd agent-stack/cdk
 npm install
 
+# IMPORTANT: Frontend must be built first (CDK references build/ directory)
+cd ../frontend/acme-chat && npm install && npm run build && cd ../../cdk
+
 # Deploy CDK stack (Cognito, Agent, MCP servers)
 cdk deploy AcmeAgentCoreStack
 
@@ -143,8 +146,20 @@ aws logs tail /aws/lambda/acme-data-generator --region us-west-2 --since 10m
 ## Stack Recreate Checklist
 
 When deleting and recreating the agent stack:
-1. `cdk deploy AcmeAgentCoreStack` - deploys infrastructure + syncs MCP secrets
-2. Create test user (Cognito User Pool is new)
-3. `./scripts/deploy-frontend.sh` - regenerates .env from CloudFormation outputs
+1. Build frontend first: `cd agent-stack/frontend/acme-chat && npm install && npm run build`
+2. `cd ../../cdk && cdk deploy AcmeAgentCoreStack` - deploys infrastructure + syncs MCP secrets
+3. Create test user (Cognito User Pool is new)
+4. `./scripts/deploy-frontend.sh` - regenerates .env from CloudFormation outputs
+
+### Full Deploy (Both Stacks)
+```bash
+# Data stack first (agent queries Athena data)
+cd data-stack/consolidated-data-stack && npm install && npm run build && cdk deploy --all
+
+# Agent stack (requires frontend build first)
+cd ../../agent-stack/frontend/acme-chat && npm install && npm run build
+cd ../../cdk && npm install && cdk deploy AcmeAgentCoreStack
+cd ../frontend/acme-chat && ./scripts/deploy-frontend.sh
+```
 
 All safeguards are automated - no manual secret sync needed.
