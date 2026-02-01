@@ -110,6 +110,166 @@ export class DataLakeStack extends cdk.Stack {
     });
     glueTable.addDependency(this.glueDatabase);
 
+    // Glue table for customers
+    const customersTable = new glue.CfnTable(this, 'CustomersTable', {
+      catalogId: this.account,
+      databaseName: Config.glue.databaseName,
+      tableInput: {
+        name: Config.glue.customersTableName,
+        description: 'Customer data for ACME video streaming platform',
+        tableType: 'EXTERNAL_TABLE',
+        parameters: {
+          'classification': 'parquet',
+          'parquet.compression': 'SNAPPY',
+        },
+        storageDescriptor: {
+          location: `s3://${this.dataBucket.bucketName}/customers/`,
+          inputFormat: 'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat',
+          outputFormat: 'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat',
+          serdeInfo: {
+            serializationLibrary: 'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe',
+          },
+          columns: [
+            { name: 'customer_id', type: 'string' },
+            { name: 'email', type: 'string' },
+            { name: 'first_name', type: 'string' },
+            { name: 'last_name', type: 'string' },
+            { name: 'date_of_birth', type: 'string' },
+            { name: 'age_group', type: 'string' },
+            { name: 'subscription_tier', type: 'string' },
+            { name: 'subscription_start_date', type: 'string' },
+            { name: 'subscription_end_date', type: 'string' },
+            { name: 'country', type: 'string' },
+            { name: 'state', type: 'string' },
+            { name: 'city', type: 'string' },
+            { name: 'timezone', type: 'string' },
+            { name: 'payment_method', type: 'string' },
+            { name: 'monthly_revenue', type: 'double' },
+            { name: 'lifetime_value', type: 'double' },
+            { name: 'is_active', type: 'boolean' },
+            { name: 'acquisition_channel', type: 'string' },
+            { name: 'preferred_genres', type: 'string' },
+            { name: 'created_at', type: 'string' },
+            { name: 'updated_at', type: 'string' },
+          ],
+        },
+      },
+    });
+    customersTable.addDependency(this.glueDatabase);
+
+    // Glue table for titles
+    const titlesTable = new glue.CfnTable(this, 'TitlesTable', {
+      catalogId: this.account,
+      databaseName: Config.glue.databaseName,
+      tableInput: {
+        name: Config.glue.titlesTableName,
+        description: 'Title catalog for ACME video streaming platform',
+        tableType: 'EXTERNAL_TABLE',
+        parameters: {
+          'classification': 'parquet',
+          'parquet.compression': 'SNAPPY',
+        },
+        storageDescriptor: {
+          location: `s3://${this.dataBucket.bucketName}/titles/`,
+          inputFormat: 'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat',
+          outputFormat: 'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat',
+          serdeInfo: {
+            serializationLibrary: 'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe',
+          },
+          columns: [
+            { name: 'title_id', type: 'string' },
+            { name: 'title_name', type: 'string' },
+            { name: 'title_type', type: 'string' },
+            { name: 'genre', type: 'string' },
+            { name: 'sub_genre', type: 'string' },
+            { name: 'content_rating', type: 'string' },
+            { name: 'release_date', type: 'string' },
+            { name: 'duration_minutes', type: 'int' },
+            { name: 'season_number', type: 'double' },
+            { name: 'episode_number', type: 'double' },
+            { name: 'production_country', type: 'string' },
+            { name: 'original_language', type: 'string' },
+            { name: 'available_languages', type: 'string' },
+            { name: 'director', type: 'string' },
+            { name: 'cast', type: 'string' },
+            { name: 'production_studio', type: 'string' },
+            { name: 'popularity_score', type: 'double' },
+            { name: 'critical_rating', type: 'double' },
+            { name: 'viewer_rating', type: 'double' },
+            { name: 'budget_millions', type: 'double' },
+            { name: 'revenue_millions', type: 'double' },
+            { name: 'awards_count', type: 'int' },
+            { name: 'is_original', type: 'boolean' },
+            { name: 'licensing_cost', type: 'double' },
+            { name: 'created_at', type: 'string' },
+            { name: 'updated_at', type: 'string' },
+          ],
+        },
+      },
+    });
+    titlesTable.addDependency(this.glueDatabase);
+
+    // Glue table for campaigns
+    const campaignsTable = new glue.CfnTable(this, 'CampaignsTable', {
+      catalogId: this.account,
+      databaseName: Config.glue.databaseName,
+      tableInput: {
+        name: Config.glue.campaignsTableName,
+        description: 'Ad campaign data for ACME video streaming platform',
+        tableType: 'EXTERNAL_TABLE',
+        parameters: {
+          'classification': 'parquet',
+          'parquet.compression': 'SNAPPY',
+        },
+        storageDescriptor: {
+          location: `s3://${this.dataBucket.bucketName}/campaigns/`,
+          inputFormat: 'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat',
+          outputFormat: 'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat',
+          serdeInfo: {
+            serializationLibrary: 'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe',
+          },
+          columns: [
+            { name: 'campaign_id', type: 'string' },
+            { name: 'campaign_name', type: 'string' },
+            { name: 'advertiser_id', type: 'string' },
+            { name: 'advertiser_name', type: 'string' },
+            { name: 'industry', type: 'string' },
+            { name: 'campaign_type', type: 'string' },
+            { name: 'objective', type: 'string' },
+            { name: 'start_date', type: 'string' },
+            { name: 'end_date', type: 'string' },
+            { name: 'status', type: 'string' },
+            { name: 'daily_budget', type: 'double' },
+            { name: 'total_budget', type: 'double' },
+            { name: 'spent_amount', type: 'double' },
+            { name: 'target_age_groups', type: 'string' },
+            { name: 'target_genders', type: 'string' },
+            { name: 'target_countries', type: 'string' },
+            { name: 'target_genres', type: 'string' },
+            { name: 'target_subscription_tiers', type: 'string' },
+            { name: 'ad_format', type: 'string' },
+            { name: 'ad_duration_seconds', type: 'int' },
+            { name: 'placement_type', type: 'string' },
+            { name: 'creative_url', type: 'string' },
+            { name: 'landing_page_url', type: 'string' },
+            { name: 'impressions', type: 'bigint' },
+            { name: 'unique_viewers', type: 'bigint' },
+            { name: 'clicks', type: 'bigint' },
+            { name: 'conversions', type: 'bigint' },
+            { name: 'view_through_rate', type: 'double' },
+            { name: 'click_through_rate', type: 'double' },
+            { name: 'conversion_rate', type: 'double' },
+            { name: 'cost_per_mille', type: 'double' },
+            { name: 'cost_per_click', type: 'double' },
+            { name: 'cost_per_conversion', type: 'double' },
+            { name: 'created_at', type: 'string' },
+            { name: 'updated_at', type: 'string' },
+          ],
+        },
+      },
+    });
+    campaignsTable.addDependency(this.glueDatabase);
+
     // IAM role for Athena/Glue access
     const dataAccessRole = new iam.Role(this, 'DataAccessRole', {
       roleName: `${Config.prefix}-data-access-role`,

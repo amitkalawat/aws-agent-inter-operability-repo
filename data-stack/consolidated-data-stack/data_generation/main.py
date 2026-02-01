@@ -40,6 +40,8 @@ class DataGenerator:
         click.echo("\n1. Generating customer data...")
         customer_gen = CustomerGenerator(seed=self.seed)
         customers_df = customer_gen.generate_customers(num_customers)
+        # Convert datetime columns to strings for Athena compatibility
+        customers_df = self._convert_datetime_columns(customers_df)
         self._save_to_parquet(customers_df, 'customers/customers.parquet')
         click.echo(f"   Generated {len(customers_df):,} customers")
         
@@ -47,6 +49,8 @@ class DataGenerator:
         click.echo("\n2. Generating title data...")
         title_gen = TitleGenerator(seed=self.seed)
         titles_df = title_gen.generate_titles(num_titles)
+        # Convert datetime columns to strings for Athena compatibility
+        titles_df = self._convert_datetime_columns(titles_df)
         self._save_to_parquet(titles_df, 'titles/titles.parquet')
         click.echo(f"   Generated {len(titles_df):,} titles")
         
@@ -84,6 +88,8 @@ class DataGenerator:
         click.echo("\n4. Generating ad campaign data...")
         campaign_gen = CampaignGenerator(seed=self.seed)
         campaigns_df = campaign_gen.generate_campaigns(num_campaigns)
+        # Convert datetime columns to strings for Athena compatibility
+        campaigns_df = self._convert_datetime_columns(campaigns_df)
         self._save_to_parquet(campaigns_df, 'campaigns/campaigns.parquet')
         click.echo(f"   Generated {len(campaigns_df):,} ad campaigns")
         
@@ -100,6 +106,23 @@ class DataGenerator:
         click.echo("\nData generation complete!")
         click.echo(f"Output directory: {os.path.abspath(self.output_dir)}")
     
+    def _convert_datetime_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Convert datetime and date columns to strings for Athena compatibility."""
+        df = df.copy()
+        for col in df.columns:
+            if pd.api.types.is_datetime64_any_dtype(df[col]):
+                df[col] = df[col].dt.strftime('%Y-%m-%d %H:%M:%S')
+            elif df[col].dtype == 'object':
+                # Check if it's a date object
+                try:
+                    if len(df[col].dropna()) > 0:
+                        sample = df[col].dropna().iloc[0]
+                        if hasattr(sample, 'strftime') and not isinstance(sample, str):
+                            df[col] = df[col].apply(lambda x: x.strftime('%Y-%m-%d') if x is not None else None)
+                except:
+                    pass
+        return df
+
     def _save_to_parquet(self, df: pd.DataFrame, filename: str):
         filepath = os.path.join(self.output_dir, filename)
         

@@ -20,6 +20,9 @@ export const Config = {
   glue: {
     databaseName: 'acme_telemetry',
     tableName: 'streaming_events',
+    customersTableName: 'customers',
+    titlesTableName: 'titles',
+    campaignsTableName: 'campaigns',
   },
   firehose: {
     bufferInterval: 60,
