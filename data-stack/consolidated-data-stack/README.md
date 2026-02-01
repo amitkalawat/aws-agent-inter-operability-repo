@@ -50,16 +50,38 @@ npx cdk bootstrap
 npx cdk deploy --all
 ```
 
-### Step 2: (Optional) Load Batch Data
+### Step 2: Generate Batch Data for Athena
 
-After CDK deployment, optionally run the data lake setup script to generate additional batch data for richer Athena queries:
+The streaming pipeline generates data every 5 minutes. For immediate testing, generate batch historical data:
 
 ```bash
-# Generate synthetic data and upload to S3
-./scripts/setup_data_lake.sh
+# Create virtual environment (required on macOS)
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Install dependencies
+pip install pandas pyarrow click tqdm boto3 faker
+
+# Generate synthetic data (adjust counts as needed)
+python data_generation/main.py \
+  --customers 1000 \
+  --titles 500 \
+  --telemetry 100000 \
+  --campaigns 50 \
+  --output-dir output
+
+# Upload telemetry to S3
+aws s3 sync output/telemetry/ s3://acme-telemetry-data-<ACCOUNT>-us-west-2/telemetry/ --region us-west-2
+
+# Repair Glue table to discover new partitions
+aws athena start-query-execution \
+  --query-string "MSCK REPAIR TABLE acme_telemetry.streaming_events" \
+  --work-group primary \
+  --result-configuration "OutputLocation=s3://acme-telemetry-data-<ACCOUNT>-us-west-2/athena-results/" \
+  --region us-west-2
 ```
 
-This creates additional tables: `customers`, `titles`, `telemetry`, `campaigns` with synthetic data (10K customers, 1K titles, 100K events, 50 campaigns).
+**Note**: The batch generator outputs data in `year=/month=/day=/hour=` Hive partitioning format to match the Glue table schema.
 
 ## Stacks
 
@@ -97,34 +119,92 @@ This creates additional tables: `customers`, `titles`, `telemetry`, `campaigns` 
 
 ## Query Examples
 
+### Basic Analytics
 ```sql
 -- Total events
-SELECT COUNT(*) FROM acme_telemetry.streaming_events;
+SELECT COUNT(*) as total_events FROM acme_telemetry.streaming_events;
 
 -- Events by type
 SELECT event_type, COUNT(*) as count
 FROM acme_telemetry.streaming_events
-GROUP BY event_type
-ORDER BY count DESC;
-
--- Events by date
-SELECT SUBSTR(event_timestamp, 1, 10) as date, COUNT(*) as count
-FROM acme_telemetry.streaming_events
-GROUP BY SUBSTR(event_timestamp, 1, 10)
-ORDER BY date DESC;
-
--- Content engagement by title type
-SELECT title_type,
-       AVG(watch_duration_seconds) as avg_duration,
-       AVG(completion_percentage) as avg_completion
-FROM acme_telemetry.streaming_events
-GROUP BY title_type;
+GROUP BY event_type ORDER BY count DESC;
 
 -- Device type distribution
-SELECT device_type, COUNT(*) as sessions
+SELECT device_type, COUNT(*) as events,
+       AVG(watch_duration_seconds) as avg_watch_duration
 FROM acme_telemetry.streaming_events
-GROUP BY device_type
-ORDER BY sessions DESC;
+GROUP BY device_type ORDER BY events DESC;
+```
+
+### Quality & Performance
+```sql
+-- Quality distribution with buffering stats
+SELECT quality, COUNT(*) as events,
+       AVG(buffering_events) as avg_buffering,
+       AVG(bandwidth_mbps) as avg_bandwidth
+FROM acme_telemetry.streaming_events
+GROUP BY quality ORDER BY events DESC;
+
+-- Error rates by device
+SELECT device_type,
+       SUM(error_count) as total_errors,
+       AVG(error_count) as avg_errors_per_session
+FROM acme_telemetry.streaming_events
+GROUP BY device_type;
+```
+
+### Geographic Analysis
+```sql
+-- Events by country
+SELECT country, COUNT(*) as events
+FROM acme_telemetry.streaming_events
+GROUP BY country ORDER BY events DESC LIMIT 10;
+
+-- ISP performance
+SELECT isp, AVG(bandwidth_mbps) as avg_bandwidth,
+       AVG(buffering_events) as avg_buffering
+FROM acme_telemetry.streaming_events
+GROUP BY isp ORDER BY avg_bandwidth DESC;
+```
+
+### Time-Based Analysis
+```sql
+-- Hourly event distribution
+SELECT hour, COUNT(*) as events,
+       AVG(completion_percentage) as avg_completion
+FROM acme_telemetry.streaming_events
+GROUP BY hour ORDER BY hour;
+
+-- Daily summary
+SELECT day, COUNT(*) as events,
+       COUNT(DISTINCT customer_id) as unique_users,
+       AVG(watch_duration_seconds) as avg_watch_secs
+FROM acme_telemetry.streaming_events
+GROUP BY day ORDER BY day;
+
+-- Single partition query (efficient)
+SELECT event_type, COUNT(*) as count
+FROM acme_telemetry.streaming_events
+WHERE year='2026' AND month='01' AND day='15'
+GROUP BY event_type;
+```
+
+### Engagement Metrics
+```sql
+-- Completion rates by event type
+SELECT event_type,
+       AVG(completion_percentage) as avg_completion,
+       AVG(watch_duration_seconds) as avg_duration
+FROM acme_telemetry.streaming_events
+GROUP BY event_type;
+
+-- Top customers by watch time
+SELECT customer_id,
+       SUM(watch_duration_seconds) as total_watch_time,
+       COUNT(*) as sessions
+FROM acme_telemetry.streaming_events
+GROUP BY customer_id
+ORDER BY total_watch_time DESC LIMIT 10;
 ```
 
 ## Manual Testing
@@ -167,6 +247,46 @@ Config.kinesis.streamName // Kinesis stream name
 Config.kinesis.streamMode // ON_DEMAND (auto-scales)
 Config.glue.databaseName  // Athena database name
 Config.lambda.timeout     // Lambda timeout (60s)
+```
+
+## Troubleshooting
+
+### Athena Query Fails with HIVE_CURSOR_ERROR
+This usually means schema mismatch between Parquet files and Glue table. Fix by recreating the table:
+
+```sql
+DROP TABLE IF EXISTS acme_telemetry.streaming_events;
+
+CREATE EXTERNAL TABLE acme_telemetry.streaming_events (
+  event_id STRING, event_type STRING, event_timestamp STRING,
+  customer_id STRING, title_id STRING, session_id STRING,
+  device_id STRING, title_type STRING, device_type STRING,
+  device_os STRING, app_version STRING, quality STRING,
+  bandwidth_mbps DOUBLE, buffering_events INT,
+  buffering_duration_seconds DOUBLE, error_count INT,
+  watch_duration_seconds INT, position_seconds INT,
+  completion_percentage DOUBLE, ip_address STRING,
+  isp STRING, connection_type STRING, country STRING,
+  state STRING, city STRING
+)
+PARTITIONED BY (year STRING, month STRING, day STRING, hour STRING)
+STORED AS PARQUET
+LOCATION 's3://acme-telemetry-data-<ACCOUNT>-us-west-2/telemetry/'
+TBLPROPERTIES ('parquet.compression'='SNAPPY');
+
+MSCK REPAIR TABLE acme_telemetry.streaming_events;
+```
+
+### No Data in Athena Queries
+1. Check S3 has data: `aws s3 ls s3://acme-telemetry-data-<ACCOUNT>-us-west-2/telemetry/ --recursive`
+2. Run partition repair: `MSCK REPAIR TABLE acme_telemetry.streaming_events`
+3. Verify partition format matches Glue schema (`year=/month=/day=/hour=`)
+
+### Python Dependency Issues on macOS
+Use virtual environment:
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install pandas pyarrow click tqdm boto3 faker
 ```
 
 ## Destroy

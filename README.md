@@ -162,6 +162,34 @@ aws cognito-idp admin-set-user-password --user-pool-id $USER_POOL_ID \
 
 > **Important**: The frontend must be built before `cdk deploy` because the CDK stack references the `build/` directory for S3 deployment.
 
+### Generate Batch Data (Optional but Recommended)
+
+The streaming pipeline generates data every 5 minutes. For immediate testing with substantial data:
+
+```bash
+cd data-stack/consolidated-data-stack
+
+# Setup Python environment
+python3 -m venv .venv && source .venv/bin/activate
+pip install pandas pyarrow click tqdm boto3 faker
+
+# Generate 100K telemetry events
+python data_generation/main.py --telemetry 100000
+
+# Get your account ID
+ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+
+# Upload to S3
+aws s3 sync output/telemetry/ s3://acme-telemetry-data-${ACCOUNT}-us-west-2/telemetry/
+
+# Repair Athena partitions
+aws athena start-query-execution \
+  --query-string "MSCK REPAIR TABLE acme_telemetry.streaming_events" \
+  --work-group primary \
+  --result-configuration "OutputLocation=s3://acme-telemetry-data-${ACCOUNT}-us-west-2/athena-results/" \
+  --region us-west-2
+```
+
 ### Test Credentials
 
 After deployment, access the CloudFront URL and login with:
@@ -174,6 +202,28 @@ After deployment, access the CloudFront URL and login with:
 - **MCP Integration**: Query AWS docs and run Athena SQL queries
 - **Streaming Responses**: Real-time response streaming
 - **Code Interpreter**: Python execution for charts and data visualization
+
+## Sample Agent Queries
+
+Once deployed with data, try these natural language queries:
+
+### Telemetry Analytics
+- "How many streaming events do we have?"
+- "Show me events by device type"
+- "What's the quality distribution of streams?"
+- "Which countries have the most viewers?"
+- "What's the average watch duration by device?"
+- "Show hourly viewing patterns"
+- "Which ISPs have the best streaming quality?"
+
+### AWS Documentation
+- "How do I create an S3 bucket with versioning?"
+- "Explain Kinesis Data Streams vs Firehose"
+- "What are the best practices for Lambda functions?"
+
+### Data Visualization (Code Interpreter)
+- "Create a bar chart of events by device type"
+- "Plot the hourly distribution of streaming events"
 
 ## Outputs
 

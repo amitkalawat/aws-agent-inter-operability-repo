@@ -143,6 +143,30 @@ aws logs tail /aws/lambda/acme-data-generator --region us-west-2 --since 10m
 | title_type | STRING | 'movie', 'series', 'documentary' |
 | device_type | STRING | 'mobile', 'web', 'tv', 'tablet' |
 
+## Batch Data Generation
+
+Generate and upload historical telemetry data for Athena queries:
+```bash
+cd data-stack/consolidated-data-stack
+python3 -m venv .venv && source .venv/bin/activate
+pip install pandas pyarrow click tqdm boto3 faker
+
+# Generate data (adjust counts as needed)
+python data_generation/main.py --customers 1000 --titles 500 --telemetry 100000 --campaigns 50
+
+# Upload to S3 (partition format must match Glue: year=/month=/day=/hour=)
+aws s3 sync output/telemetry/ s3://acme-telemetry-data-<ACCOUNT>-us-west-2/telemetry/
+
+# Repair Glue table to discover partitions
+aws athena start-query-execution --query-string "MSCK REPAIR TABLE acme_telemetry.streaming_events" \
+  --work-group primary --result-configuration OutputLocation=s3://acme-telemetry-data-<ACCOUNT>-us-west-2/athena-results/ --region us-west-2
+```
+
+**Gotchas:**
+- Glue table expects Hive partitioning (`year=/month=/day=/hour=`) - convert from `date=YYYYMMDD` if needed
+- If Athena fails with `HIVE_CURSOR_ERROR`, recreate table via DDL to match parquet schema exactly
+- Parquet files must NOT contain partition columns in data (only in path)
+
 ## Stack Recreate Checklist
 
 When deleting and recreating the agent stack:
