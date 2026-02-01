@@ -253,6 +253,29 @@ After deploying the agent stack, you'll get:
 | `CognitoUserPoolId` | User pool ID for authentication |
 | `CognitoAppClientId` | App client ID for frontend |
 
+## Cleanup
+
+To delete all resources:
+
+```bash
+# Destroy data stack
+cd data-stack/consolidated-data-stack
+cdk destroy --all --force
+
+# Destroy agent stack
+cd ../../agent-stack/cdk
+cdk destroy AcmeAgentCoreStack --force
+
+# Kinesis Data Stream may not be deleted by CDK - delete manually if needed
+aws kinesis delete-stream --stream-name acme-telemetry-stream --region us-west-2
+
+# Clean up orphaned CloudWatch log groups
+for log_group in $(aws logs describe-log-groups --region us-west-2 \
+  --query 'logGroups[?contains(logGroupName, `acme`)].logGroupName' --output text); do
+  aws logs delete-log-group --log-group-name "$log_group" --region us-west-2
+done
+```
+
 ## License
 
 MIT

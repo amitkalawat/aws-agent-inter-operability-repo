@@ -382,4 +382,13 @@ pip install pandas pyarrow click tqdm boto3 faker
 ```bash
 # Remove all stacks
 npx cdk destroy --all
+
+# Kinesis Data Stream may not be deleted by CDK - delete manually if needed
+aws kinesis delete-stream --stream-name acme-telemetry-stream --region us-west-2
+
+# Clean up orphaned CloudWatch log groups
+for log_group in $(aws logs describe-log-groups --region us-west-2 \
+  --query 'logGroups[?contains(logGroupName, `acme`)].logGroupName' --output text); do
+  aws logs delete-log-group --log-group-name "$log_group" --region us-west-2
+done
 ```
