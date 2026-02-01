@@ -121,7 +121,7 @@ Located in `agent-stack/aws-mcp-server-agentcore/`:
 
 ### Data Stack
 - **Kinesis**: On-Demand mode (auto-scales), 24hr retention
-- **Firehose**: Delivers to S3 with Hive partitioning (year/month/day/hour)
+- **Firehose**: Delivers to S3 with Hive partitioning, 64MB buffer minimum (required for Parquet conversion)
 - **Generator Lambda**: EventBridge scheduled (5 min), 1000 events per batch
 
 ## Logs
@@ -135,7 +135,14 @@ aws logs tail /aws/lambda/acme-data-generator --region us-west-2 --since 10m
 
 ## Athena Schema
 
-**Database**: `acme_telemetry` | **Table**: `streaming_events`
+**Database**: `acme_telemetry`
+
+| Table | Description |
+|-------|-------------|
+| `streaming_events` | Telemetry data (partitioned by year/month/day/hour) |
+| `customers` | Customer profiles (1000 records) |
+| `titles` | Video catalog (500 records) |
+| `campaigns` | Ad campaigns (50 records) |
 
 | Column | Type | Values |
 |--------|------|--------|
@@ -166,6 +173,9 @@ aws athena start-query-execution --query-string "MSCK REPAIR TABLE acme_telemetr
 - Glue table expects Hive partitioning (`year=/month=/day=/hour=`) - convert from `date=YYYYMMDD` if needed
 - If Athena fails with `HIVE_CURSOR_ERROR`, recreate table via DDL to match parquet schema exactly
 - Parquet files must NOT contain partition columns in data (only in path)
+- Athena queries require `--result-configuration OutputLocation=s3://bucket/athena-results/`
+- macOS requires venv for pip: `python3 -m venv venv && source venv/bin/activate`
+- Datetime/date columns must be strings in Parquet for Athena compatibility
 
 ## Stack Recreate Checklist
 
