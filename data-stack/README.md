@@ -29,8 +29,8 @@ Serverless streaming data infrastructure for generating, processing, and analyzi
 | **Kinesis Data Stream** | On-Demand mode, auto-scales, 24hr retention |
 | **Kinesis Firehose** | Delivers to S3 with Hive partitioning (year/month/day/hour) |
 | **Lambda Functions** | Generator creates 1000 synthetic events per batch |
-| **S3 Data Lake** | GZIP compressed JSON, partitioned for Athena |
-| **Glue Catalog** | Table definitions for Athena queries |
+| **S3 Data Lake** | Parquet with SNAPPY compression, Hive partitioned |
+| **Glue Catalog** | Table definitions for Athena queries (4 tables) |
 
 ## Deployment
 
@@ -45,7 +45,16 @@ See [consolidated-data-stack/README.md](./consolidated-data-stack/README.md) for
 
 ## Data Schema
 
-**Database**: `acme_telemetry` | **Table**: `streaming_events`
+**Database**: `acme_telemetry`
+
+| Table | Description | Records |
+|-------|-------------|---------|
+| `streaming_events` | Telemetry data (partitioned by year/month/day/hour) | Streaming + batch |
+| `customers` | Customer profiles | 1,000 |
+| `titles` | Video catalog | 500 |
+| `campaigns` | Ad campaigns | 50 |
+
+### streaming_events (Key Columns)
 
 | Column | Type | Description |
 |--------|------|-------------|

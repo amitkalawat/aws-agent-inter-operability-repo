@@ -173,22 +173,24 @@ cd data-stack/consolidated-data-stack
 python3 -m venv .venv && source .venv/bin/activate
 pip install pandas pyarrow click tqdm boto3 faker
 
-# Generate 100K telemetry events
-python data_generation/main.py --telemetry 100000
+# Generate all data (customers, titles, campaigns, telemetry)
+python data_generation/main.py --customers 1000 --titles 500 --telemetry 100000 --campaigns 50
 
 # Get your account ID
 ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 
-# Upload to S3
-aws s3 sync output/telemetry/ s3://acme-telemetry-data-${ACCOUNT}-us-west-2/telemetry/
+# Upload all tables to S3
+aws s3 sync output/ s3://acme-telemetry-data-${ACCOUNT}-us-west-2/ --exclude "metadata.json"
 
-# Repair Athena partitions
+# Repair Athena partitions (telemetry only - it's partitioned)
 aws athena start-query-execution \
   --query-string "MSCK REPAIR TABLE acme_telemetry.streaming_events" \
   --work-group primary \
   --result-configuration "OutputLocation=s3://acme-telemetry-data-${ACCOUNT}-us-west-2/athena-results/" \
   --region us-west-2
 ```
+
+This creates 4 Athena tables: `streaming_events`, `customers`, `titles`, `campaigns`.
 
 ### Test Credentials
 
@@ -215,6 +217,21 @@ Once deployed with data, try these natural language queries:
 - "What's the average watch duration by device?"
 - "Show hourly viewing patterns"
 - "Which ISPs have the best streaming quality?"
+
+### Customer Analytics
+- "How many customers do we have by subscription tier?"
+- "What's the average lifetime value by country?"
+- "Show me the churn rate by subscription tier"
+
+### Content Analytics
+- "What are our top rated titles?"
+- "Show me the genre distribution of our catalog"
+- "Which content types have the highest popularity?"
+
+### Campaign Analytics
+- "How are our ad campaigns performing?"
+- "What's the average CTR by campaign type?"
+- "Show top campaigns by conversions"
 
 ### AWS Documentation
 - "How do I create an S3 bucket with versioning?"

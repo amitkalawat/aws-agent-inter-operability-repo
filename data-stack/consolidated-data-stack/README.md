@@ -70,10 +70,10 @@ python data_generation/main.py \
   --campaigns 50 \
   --output-dir output
 
-# Upload telemetry to S3
-aws s3 sync output/telemetry/ s3://acme-telemetry-data-<ACCOUNT>-us-west-2/telemetry/ --region us-west-2
+# Upload all tables to S3
+aws s3 sync output/ s3://acme-telemetry-data-<ACCOUNT>-us-west-2/ --exclude "metadata.json" --region us-west-2
 
-# Repair Glue table to discover new partitions
+# Repair Glue table to discover new partitions (telemetry only - it's partitioned)
 aws athena start-query-execution \
   --query-string "MSCK REPAIR TABLE acme_telemetry.streaming_events" \
   --work-group primary \
@@ -81,7 +81,9 @@ aws athena start-query-execution \
   --region us-west-2
 ```
 
-**Note**: The batch generator outputs data in `year=/month=/day=/hour=` Hive partitioning format to match the Glue table schema.
+**Note**: The batch generator outputs:
+- `telemetry/` - Hive partitioned (`year=/month=/day=/hour=`)
+- `customers/`, `titles/`, `campaigns/` - Single Parquet files
 
 ## Stacks
 
@@ -102,7 +104,16 @@ aws athena start-query-execution \
 
 ## Data Schema
 
-**Database**: `acme_telemetry` | **Table**: `streaming_events`
+**Database**: `acme_telemetry`
+
+| Table | Description | Partitioned |
+|-------|-------------|-------------|
+| `streaming_events` | Telemetry events (25 columns) | Yes (year/month/day/hour) |
+| `customers` | Customer profiles (21 columns) | No |
+| `titles` | Video catalog (26 columns) | No |
+| `campaigns` | Ad campaigns (34 columns) | No |
+
+### streaming_events (Key Columns)
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -116,6 +127,36 @@ aws athena start-query-execution \
 | quality | STRING | Stream quality (SD, HD, 4K) |
 | watch_duration_seconds | INT | Watch duration |
 | completion_percentage | DOUBLE | Completion percentage |
+
+### customers (Key Columns)
+
+| Column | Type | Description |
+|--------|------|-------------|
+| customer_id | STRING | Unique customer ID |
+| subscription_tier | STRING | free_with_ads, basic, standard, premium |
+| country | STRING | Customer country |
+| is_active | BOOLEAN | Active subscription |
+| lifetime_value | DOUBLE | Customer LTV |
+
+### titles (Key Columns)
+
+| Column | Type | Description |
+|--------|------|-------------|
+| title_id | STRING | Unique title ID |
+| title_name | STRING | Title name |
+| title_type | STRING | movie, series, documentary |
+| genre | STRING | Content genre |
+| popularity_score | DOUBLE | Popularity (0-100) |
+
+### campaigns (Key Columns)
+
+| Column | Type | Description |
+|--------|------|-------------|
+| campaign_id | STRING | Unique campaign ID |
+| advertiser_name | STRING | Advertiser name |
+| campaign_type | STRING | brand_awareness, conversion, retention |
+| impressions | BIGINT | Total impressions |
+| click_through_rate | DOUBLE | CTR |
 
 ## Query Examples
 
@@ -205,6 +246,53 @@ SELECT customer_id,
 FROM acme_telemetry.streaming_events
 GROUP BY customer_id
 ORDER BY total_watch_time DESC LIMIT 10;
+```
+
+### Customer Analytics
+```sql
+-- Customers by subscription tier
+SELECT subscription_tier, COUNT(*) as customers,
+       AVG(lifetime_value) as avg_ltv
+FROM acme_telemetry.customers
+GROUP BY subscription_tier ORDER BY customers DESC;
+
+-- Active vs churned customers by country
+SELECT country,
+       SUM(CASE WHEN is_active THEN 1 ELSE 0 END) as active,
+       SUM(CASE WHEN NOT is_active THEN 1 ELSE 0 END) as churned
+FROM acme_telemetry.customers
+GROUP BY country ORDER BY active DESC;
+```
+
+### Content Analytics
+```sql
+-- Titles by genre and type
+SELECT genre, title_type, COUNT(*) as titles,
+       AVG(popularity_score) as avg_popularity
+FROM acme_telemetry.titles
+GROUP BY genre, title_type ORDER BY titles DESC;
+
+-- Top rated content
+SELECT title_name, genre, viewer_rating, popularity_score
+FROM acme_telemetry.titles
+ORDER BY viewer_rating DESC LIMIT 10;
+```
+
+### Campaign Analytics
+```sql
+-- Campaign performance by type
+SELECT campaign_type, COUNT(*) as campaigns,
+       SUM(impressions) as total_impressions,
+       AVG(click_through_rate) as avg_ctr
+FROM acme_telemetry.campaigns
+GROUP BY campaign_type;
+
+-- Top performing campaigns
+SELECT campaign_name, advertiser_name, impressions,
+       click_through_rate, conversion_rate
+FROM acme_telemetry.campaigns
+WHERE status = 'completed'
+ORDER BY conversions DESC LIMIT 10;
 ```
 
 ## Manual Testing
