@@ -126,6 +126,7 @@ class TelemetryGenerator:
             'watch_duration_seconds': viewing_session['watch_duration'],
             'position_seconds': viewing_session['position'],
             'completion_percentage': viewing_session['completion_percentage'],
+            'title_type': title['title_type'],
             'device_type': device_type,
             'device_id': f"DEVICE_{str(uuid.uuid4())[:8]}",
             'device_os': device_os,

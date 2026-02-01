@@ -61,16 +61,22 @@ class DataGenerator:
         for i in tqdm(range(num_batches), desc="   Generating telemetry batches"):
             events_in_batch = min(batch_size, num_telemetry_events - i * batch_size)
             telemetry_df = telemetry_gen.generate_telemetry_events(events_in_batch)
-            
-            # Partition by date for better query performance
-            telemetry_df['date'] = telemetry_df['event_timestamp'].dt.date
-            
-            # Save each batch with partitioning
-            for date, date_df in telemetry_df.groupby('date'):
-                date_str = date.strftime('%Y%m%d')
-                filename = f'telemetry/date={date_str}/batch_{i:04d}.parquet'
+
+            # Extract partition keys (Hive format: year=/month=/day=/hour=)
+            telemetry_df['_year'] = telemetry_df['event_timestamp'].dt.strftime('%Y')
+            telemetry_df['_month'] = telemetry_df['event_timestamp'].dt.strftime('%m')
+            telemetry_df['_day'] = telemetry_df['event_timestamp'].dt.strftime('%d')
+            telemetry_df['_hour'] = telemetry_df['event_timestamp'].dt.strftime('%H')
+
+            # Convert timestamp to string for Parquet/Athena compatibility
+            telemetry_df['event_timestamp'] = telemetry_df['event_timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
+
+            # Save each batch with Hive-style partitioning
+            for (year, month, day, hour), part_df in telemetry_df.groupby(['_year', '_month', '_day', '_hour']):
+                filename = f'telemetry/year={year}/month={month}/day={day}/hour={hour}/batch_{i:04d}.parquet'
                 os.makedirs(os.path.dirname(os.path.join(self.output_dir, filename)), exist_ok=True)
-                self._save_to_parquet(date_df.drop('date', axis=1), filename)
+                # Drop partition helper columns before saving
+                self._save_to_parquet(part_df.drop(['_year', '_month', '_day', '_hour'], axis=1), filename)
         
         click.echo(f"   Generated {num_telemetry_events:,} telemetry events")
         
