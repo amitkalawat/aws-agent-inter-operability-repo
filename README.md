@@ -22,16 +22,23 @@ This repository demonstrates AWS Bedrock AgentCore with MCP (Model Context Proto
 │  │                                              │  └────────┬─────────┘  │     │    │
 │  │                                              └───────────┼────────────┘     │    │
 │  │                                                          │                  │    │
-│  │                              ┌───────────────────────────┼───────────────┐  │    │
-│  │                              │         MCP Servers       │               │  │    │
-│  │                              │  ┌──────────────┐  ┌──────▼─────────┐     │  │    │
-│  │                              │  │  AWS Docs    │  │ Data Processing│     │  │    │
-│  │                              │  │  MCP Server  │  │ MCP Server     │     │  │    │
-│  │                              │  └──────────────┘  └───────┬────────┘     │  │    │
-│  │                              └────────────────────────────┼──────────────┘  │    │
-│  └───────────────────────────────────────────────────────────┼─────────────────┘    │
-│                                                              │                      │
-│                                                              ▼                      │
+│  │                              ┌───────────────────────────▼───────────────┐  │    │
+│  │                              │         AgentCore Gateway                 │  │    │
+│  │                              │    (Unified MCP Endpoint)                 │  │    │
+│  │                              │  - Semantic Tool Discovery                │  │    │
+│  │                              │  - Centralized Auth Management            │  │    │
+│  │                              └───────────────────┬───────────────────────┘  │    │
+│  │                                                  │                          │    │
+│  │                              ┌───────────────────┴───────────────────────┐  │    │
+│  │                              │            MCP Servers                    │  │    │
+│  │                              │  ┌──────────────┐  ┌──────────────────┐   │  │    │
+│  │                              │  │  AWS Docs    │  │ Data Processing  │   │  │    │
+│  │                              │  │  MCP Server  │  │ MCP Server       │   │  │    │
+│  │                              │  └──────────────┘  └────────┬─────────┘   │  │    │
+│  │                              └─────────────────────────────┼─────────────┘  │    │
+│  └────────────────────────────────────────────────────────────┼────────────────┘    │
+│                                                               │                     │
+│                                                               ▼                     │
 │  ┌───────────────────────────────────────────────────────────────────────────────┐  │
 │  │                          DATA STACK (data-stack/)                              │  │
 │  │                                                                                │  │
@@ -60,10 +67,12 @@ This repository demonstrates AWS Bedrock AgentCore with MCP (Model Context Proto
 
 1. **User Interaction**: User accesses the React app via CloudFront, authenticates with Cognito
 2. **Agent Invocation**: Authenticated requests invoke the Bedrock AgentCore Runtime
-3. **MCP Tools**: Agent uses MCP servers to search AWS docs or query telemetry data
-4. **Data Queries**: Data Processing MCP server runs Athena SQL queries on the S3 data lake
-5. **Data Generation**: EventBridge triggers Lambda functions every 5 minutes to generate synthetic telemetry
-6. **Data Pipeline**: Kinesis Firehose delivers streaming data to S3 with Hive partitioning
+3. **Gateway Access**: Agent connects to AgentCore Gateway (single unified MCP endpoint)
+4. **Tool Discovery**: Gateway provides semantic search across all MCP server tools
+5. **MCP Tools**: Gateway routes requests to appropriate MCP servers (AWS Docs, Data Processing)
+6. **Data Queries**: Data Processing MCP server runs Athena SQL queries on the S3 data lake
+7. **Data Generation**: EventBridge triggers Lambda functions every 5 minutes to generate synthetic telemetry
+8. **Data Pipeline**: Kinesis Firehose delivers streaming data to S3 with Hive partitioning
 
 ## Stack Overview
 
@@ -75,7 +84,8 @@ Contains the AI agent infrastructure built with AWS Bedrock AgentCore:
 - **Frontend**: React TypeScript application with AWS Cognito authentication
 - **Backend**: Python Strands agent powered by Claude Haiku 4.5
 - **Memory**: AWS Bedrock AgentCore Memory for conversation persistence
-- **MCP Integration**: 2 MCP servers (AWS Docs, Data Processing)
+- **MCP Gateway**: Unified endpoint aggregating all MCP servers with semantic tool discovery
+- **MCP Servers**: 2 MCP servers (AWS Docs, Data Processing) accessed via Gateway
 - **Code Interpreter**: Python execution for data visualization
 
 ### Data Stack (`data-stack/`)
@@ -88,7 +98,8 @@ Contains the streaming data infrastructure and analytics:
 
 ## AWS Services Used
 
-- **AWS Bedrock AgentCore**: Agent runtime, memory, and MCP server hosting
+- **AWS Bedrock AgentCore**: Agent runtime, memory, Gateway, and MCP server hosting
+- **AgentCore Gateway**: Unified MCP endpoint with semantic tool discovery
 - **Amazon Kinesis**: Data Stream and Firehose for streaming
 - **AWS Lambda**: Data generation and processing
 - **Amazon S3**: Data lake storage

@@ -21,20 +21,28 @@ AWS Bedrock AgentCore demonstration with MCP (Model Context Protocol) integratio
 │  │   CloudFront ──▶ Cognito ──▶ Bedrock AgentCore Runtime              │  │
 │  │   (React App)    (Auth)      (Claude Haiku 4.5 + Memory)            │  │
 │  │                                       │                             │  │
-│  │                    ┌──────────────────┼──────────────────┐          │  │
-│  │                    │       MCP Servers                   │          │  │
-│  │                    │  ┌─────────────┐  ┌──────────────┐  │          │  │
-│  │                    │  │ AWS Docs    │  │ Data Process │  │          │  │
-│  │                    │  │ MCP Server  │  │ MCP Server   │──┼──────┐   │  │
-│  │                    │  └─────────────┘  └──────────────┘  │      │   │  │
-│  │                    └─────────────────────────────────────┘      │   │  │
-│  └─────────────────────────────────────────────────────────────────┼───┘  │
-│                                                                    │      │
-│                                                          Athena Queries   │
-│                                                                    │      │
-│  ┌─────────────────────────────────────────────────────────────────┼───┐  │
-│  │                    DATA STACK (data-stack/)                     │   │  │
-│  │                                                                 ▼   │  │
+│  │                                       ▼                             │  │
+│  │                    ┌──────────────────────────────────┐             │  │
+│  │                    │      AgentCore Gateway           │             │  │
+│  │                    │   (Unified MCP Endpoint)         │             │  │
+│  │                    │   - Semantic Tool Discovery      │             │  │
+│  │                    │   - Centralized Auth             │             │  │
+│  │                    └──────────────┬───────────────────┘             │  │
+│  │                                   │                                 │  │
+│  │                    ┌──────────────┴──────────────┐                  │  │
+│  │                    │       MCP Servers           │                  │  │
+│  │                    │  ┌─────────────┐  ┌──────────────┐             │  │
+│  │                    │  │ AWS Docs    │  │ Data Process │             │  │
+│  │                    │  │ MCP Server  │  │ MCP Server   │──┐          │  │
+│  │                    │  └─────────────┘  └──────────────┘  │          │  │
+│  │                    └─────────────────────────────────────┘          │  │
+│  └──────────────────────────────────────────────────────────┼──────────┘  │
+│                                                             │             │
+│                                                   Athena Queries          │
+│                                                             │             │
+│  ┌──────────────────────────────────────────────────────────┼──────────┐  │
+│  │                    DATA STACK (data-stack/)              │          │  │
+│  │                                                          ▼          │  │
 │  │   EventBridge ──▶ Lambda ──▶ Kinesis ──▶ Firehose ──▶ S3 Data Lake  │  │
 │  │   (5 min)         (Generator)  (Stream)              (Glue + Athena)│  │
 │  └─────────────────────────────────────────────────────────────────────┘  │
@@ -93,16 +101,22 @@ aws cognito-idp admin-set-user-password --user-pool-id $USER_POOL_ID \
 | Path | Purpose |
 |------|---------|
 | `agent-stack/cdk/lib/acme-stack.ts` | Main CDK stack orchestrating all constructs |
-| `agent-stack/cdk/lib/config/index.ts` | Central configuration (region, naming, Cognito, model) |
+| `agent-stack/cdk/lib/config/index.ts` | Central configuration (region, naming, Cognito, model, Gateway) |
+| `agent-stack/cdk/lib/constructs/gateway-construct.ts` | AgentCore Gateway for unified MCP access |
 | `agent-stack/cdk/lib/constructs/secrets-construct.ts` | MCP credentials sync (Custom Resource) |
-| `agent-stack/cdk/docker/agent/strands_claude.py` | Main agent logic with MCP client management |
+| `agent-stack/cdk/docker/agent/strands_claude.py` | Main agent logic with Gateway MCP client |
 | `agent-stack/frontend/acme-chat/src/services/AuthService.ts` | Cognito auth (USER_PASSWORD_AUTH flow) |
 | `agent-stack/frontend/acme-chat/src/services/AgentCoreService.ts` | Agent invocation API client |
 | `data-stack/consolidated-data-stack/lib/config.ts` | Data stack configuration |
 
-## MCP Servers
+## MCP Gateway & Servers
 
-Located in `agent-stack/aws-mcp-server-agentcore/`:
+The agent accesses MCP tools through **AgentCore Gateway**, which provides:
+- Single unified endpoint for all MCP servers
+- Semantic tool discovery across servers
+- Centralized OAuth authentication management
+
+**MCP Servers** (located in `agent-stack/aws-mcp-server-agentcore/`):
 - **aws-documentation-mcp-server**: Search AWS documentation
 - **aws-dataprocessing-mcp-server**: Athena SQL queries on ACME telemetry data
 
@@ -114,10 +128,12 @@ Located in `agent-stack/aws-mcp-server-agentcore/`:
 - MCP credentials synced to Secrets Manager via CDK Custom Resource on every deploy
 - Agent caches secrets for 5 minutes (TTL in `secrets_manager.py`)
 
-### MCP Server Invocation
+### MCP Gateway Invocation
+- **Gateway Endpoint**: Agent connects to single Gateway endpoint (`MCP_GATEWAY_ENDPOINT`)
 - **Accept Header**: Must include `application/json, text/event-stream` or get 406 error
 - **SSE Response**: MCP responses are Server-Sent Events format
-- **Session ID**: Capture `mcp-session-id` header from initialize response
+- **Tool Discovery**: Gateway provides semantic search across all MCP server tools
+- **Outbound Auth**: Gateway handles OAuth to individual MCP servers
 
 ### Data Stack
 - **Kinesis**: On-Demand mode (auto-scales), 24hr retention
