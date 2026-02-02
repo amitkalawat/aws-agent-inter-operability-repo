@@ -69,84 +69,9 @@ agent-stack/
 
 ## Deployment
 
-### Prerequisites
-- Node.js 18+
-- AWS CLI configured with `jq` installed
-- AWS CDK installed (`npm install -g aws-cdk`)
-
-### Deploy Everything
-
-**Important**: The frontend requires Cognito configuration that's only available after CDK deployment. Follow these steps in order:
-
-```bash
-# 1. Install CDK dependencies
-cd cdk
-npm install
-
-# 2. Install frontend dependencies
-cd ../frontend/acme-chat
-npm install
-cd ../../cdk
-
-# 3. Deploy CDK stack (creates Cognito, Agent, MCP servers, etc.)
-cdk deploy AcmeAgentCoreStack
-
-# 4. Deploy frontend (auto-generates .env from CloudFormation outputs)
-cd ../frontend/acme-chat
-./scripts/deploy-frontend.sh
-```
-
-### Quick Redeploy (After Stack Changes)
-
-If you've already deployed once and just need to update after a `cdk deploy`:
-
-```bash
-cd frontend/acme-chat
-./scripts/deploy-frontend.sh   # Regenerates .env, rebuilds, and deploys
-```
-
-The `deploy-frontend.sh` script automatically:
-- Fetches fresh config from CloudFormation outputs
-- Generates new `.env` file
-- Builds the frontend
-- Syncs to S3 and invalidates CloudFront cache
-
-### Create Test User
-
-The deployment does not create users automatically. Create a test user via AWS CLI:
-
-```bash
-# Get the User Pool ID from CDK outputs
-USER_POOL_ID=$(aws cloudformation describe-stacks \
-  --stack-name AcmeAgentCoreStack \
-  --query 'Stacks[0].Outputs[?OutputKey==`CognitoUserPoolId`].OutputValue' \
-  --output text --region us-west-2)
-
-# Create user
-aws cognito-idp admin-create-user \
-  --user-pool-id $USER_POOL_ID \
-  --username user1@test.com \
-  --user-attributes Name=email,Value=user1@test.com Name=email_verified,Value=true \
-  --message-action SUPPRESS \
-  --region us-west-2
-
-# Set permanent password
-aws cognito-idp admin-set-user-password \
-  --user-pool-id $USER_POOL_ID \
-  --username user1@test.com \
-  --password 'Abcd1234@' \
-  --permanent \
-  --region us-west-2
-```
-
-**Password Requirements**:
-- Minimum 8 characters
-- At least one uppercase letter
-- At least one lowercase letter
-- At least one digit
-- At least one symbol
-
-Alternatively, create users via the [AWS Cognito Console](https://console.aws.amazon.com/cognito/users).
+> **For deployment instructions, see the [main README](../README.md) in the repository root.**
+>
+> The main README contains the complete step-by-step deployment guide with verification checks.
 
 ## Configuration
 

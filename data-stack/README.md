@@ -34,14 +34,11 @@ Serverless streaming data infrastructure for generating, processing, and analyzi
 
 ## Deployment
 
-```bash
-cd data-stack/consolidated-data-stack
-npm install
-npm run build
-npx cdk deploy --all
-```
+> **For deployment instructions, see the [main README](../README.md) in the repository root.**
+>
+> The main README contains the complete step-by-step deployment guide with verification checks.
 
-See [consolidated-data-stack/README.md](./consolidated-data-stack/README.md) for detailed instructions.
+See [consolidated-data-stack/README.md](./consolidated-data-stack/README.md) for architecture details and troubleshooting.
 
 ## Data Schema
 
