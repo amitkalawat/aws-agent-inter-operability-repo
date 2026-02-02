@@ -117,10 +117,8 @@ export class AcmeAgentCoreStack extends Stack {
       frontendClient: auth.frontendClient,
       mcpCredentials: secrets.mcpCredentials,
       memory: memory.memory,
-      // Use Gateway endpoint instead of individual MCP server endpoints
+      // Agent connects to MCP tools via Gateway (unified endpoint)
       mcpGatewayEndpoint: gateway.gatewayEndpoint,
-      // Keep individual endpoints for fallback (optional)
-      mcpServerEndpoints: mcpServers.getArns(),
       removalPolicy,
     });
 
