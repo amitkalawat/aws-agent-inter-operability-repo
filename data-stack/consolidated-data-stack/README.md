@@ -6,6 +6,12 @@ Single CDK deployment combining all ACME telemetry data infrastructure:
 - Lambda data generators (synthetic telemetry)
 - S3 Data Lake with Glue catalog (Athena queries)
 
+## Deployment
+
+> **For deployment instructions, see the [main README](../../README.md) in the repository root.**
+>
+> The main README contains the complete step-by-step deployment guide with verification checks.
+
 ## Architecture
 
 ```
@@ -26,204 +32,15 @@ Single CDK deployment combining all ACME telemetry data infrastructure:
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-## Prerequisites
-
-- AWS CLI configured with credentials
-- Node.js 18+ and npm
-- CDK CLI (`npm install -g aws-cdk`)
-
-### Verify Prerequisites
-
-```bash
-#─────────────────────────────────────────────────────────────────────────────
-# PREREQUISITES CHECKLIST
-#─────────────────────────────────────────────────────────────────────────────
-
-echo "Checking prerequisites..."
-
-# Node.js 18+
-NODE_VERSION=$(node --version 2>/dev/null | cut -d'v' -f2 | cut -d'.' -f1)
-[ "$NODE_VERSION" -ge 18 ] 2>/dev/null && echo "✓ Node.js: $(node --version)" || echo "✗ Node.js 18+ required"
-
-# AWS credentials
-aws sts get-caller-identity > /dev/null 2>&1 && echo "✓ AWS credentials: configured" || echo "✗ AWS credentials: not configured"
-
-# AWS region
-REGION=$(aws configure get region 2>/dev/null)
-[ "$REGION" = "us-west-2" ] && echo "✓ AWS region: us-west-2" || echo "⚠ AWS region: ${REGION:-not set} (set with: export AWS_REGION=us-west-2)"
-
-# CDK
-cdk --version > /dev/null 2>&1 && echo "✓ CDK: $(cdk --version)" || echo "✗ CDK not found (install: npm install -g aws-cdk)"
-
-# Set account ID for later use
-export ACCOUNT=$(aws sts get-caller-identity --query Account --output text 2>/dev/null)
-echo ""
-echo "Your AWS Account ID: $ACCOUNT"
-echo "Fix any ✗ items before proceeding."
-```
-
-## Quick Start
-
-### Step 1: Deploy Infrastructure
-
-```bash
-# Set account ID (used in verification commands)
-export ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
-
-# Install dependencies
-npm install
-
-# Build TypeScript
-npm run build
-
-# ✓ VERIFY: TypeScript compiled successfully
-[ -d "lib" ] && echo "✓ TypeScript build successful" || echo "✗ Build failed"
-
-# Bootstrap CDK (first time only - safe to run again)
-npx cdk bootstrap aws://${ACCOUNT}/us-west-2
-
-# Deploy all stacks
-npx cdk deploy --all --require-approval never
-
-# ✓ VERIFY: All stacks deployed
-echo "Checking stack status..."
-for stack in AcmeKinesisStack AcmeDataLakeStack AcmeDataGenStack; do
-  STATUS=$(aws cloudformation describe-stacks --stack-name $stack --query 'Stacks[0].StackStatus' --output text --region us-west-2 2>/dev/null)
-  if [ "$STATUS" = "CREATE_COMPLETE" ] || [ "$STATUS" = "UPDATE_COMPLETE" ]; then
-    echo "✓ $stack: $STATUS"
-  else
-    echo "✗ $stack: ${STATUS:-NOT FOUND}"
-  fi
-done
-
-# ✓ VERIFY: S3 bucket created
-aws s3 ls s3://acme-telemetry-data-${ACCOUNT}-us-west-2/ > /dev/null 2>&1 \
-  && echo "✓ S3 bucket exists" \
-  || echo "✗ S3 bucket not found"
-```
-
-### Step 2: Generate Batch Data for Athena
-
-The streaming pipeline generates data every 5 minutes. For immediate testing, generate batch historical data:
-
-```bash
-# Ensure account ID is set
-export ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
-echo "Using account: $ACCOUNT"
-
-#─────────────────────────────────────────────────────────────────────────────
-# Setup Python environment
-#─────────────────────────────────────────────────────────────────────────────
-# Create virtual environment (required on macOS)
-python3 -m venv .venv
-source .venv/bin/activate
-
-# Install dependencies
-pip install pandas pyarrow click tqdm boto3 faker
-
-# ✓ VERIFY: Python packages installed
-python -c "import pandas, pyarrow, faker, boto3; print('✓ All Python packages installed')" || echo "✗ Package installation failed"
-
-#─────────────────────────────────────────────────────────────────────────────
-# Generate synthetic data
-#─────────────────────────────────────────────────────────────────────────────
-python data_generation/main.py \
-  --customers 1000 \
-  --titles 500 \
-  --telemetry 100000 \
-  --campaigns 50 \
-  --output-dir output
-
-# ✓ VERIFY: Output files created
-echo "Checking generated files..."
-for dir in telemetry customers titles campaigns; do
-  if [ -d "output/$dir" ]; then
-    FILE_COUNT=$(find output/$dir -name "*.parquet" | wc -l | tr -d ' ')
-    echo "✓ output/$dir: $FILE_COUNT parquet file(s)"
-  else
-    echo "✗ output/$dir: NOT FOUND"
-  fi
-done
-
-#─────────────────────────────────────────────────────────────────────────────
-# Upload to S3
-#─────────────────────────────────────────────────────────────────────────────
-echo "Uploading to S3..."
-aws s3 sync output/ s3://acme-telemetry-data-${ACCOUNT}-us-west-2/ --exclude "metadata.json" --region us-west-2
-
-# ✓ VERIFY: Files uploaded
-echo "Verifying S3 upload..."
-S3_COUNT=$(aws s3 ls s3://acme-telemetry-data-${ACCOUNT}-us-west-2/ --recursive --region us-west-2 | grep ".parquet" | wc -l | tr -d ' ')
-echo "✓ $S3_COUNT parquet files in S3"
-
-#─────────────────────────────────────────────────────────────────────────────
-# Repair Athena partitions
-#─────────────────────────────────────────────────────────────────────────────
-echo "Repairing Athena partitions..."
-QUERY_ID=$(aws athena start-query-execution \
-  --query-string "MSCK REPAIR TABLE acme_telemetry.streaming_events" \
-  --work-group primary \
-  --result-configuration "OutputLocation=s3://acme-telemetry-data-${ACCOUNT}-us-west-2/athena-results/" \
-  --region us-west-2 \
-  --query 'QueryExecutionId' --output text)
-
-echo "Query ID: $QUERY_ID"
-echo "Waiting for completion..."
-sleep 10
-
-# ✓ VERIFY: Partition repair succeeded
-STATUS=$(aws athena get-query-execution --query-execution-id $QUERY_ID \
-  --query 'QueryExecution.Status.State' --output text --region us-west-2)
-if [ "$STATUS" = "SUCCEEDED" ]; then
-  echo "✓ Partition repair: $STATUS"
-else
-  echo "✗ Partition repair: $STATUS"
-  aws athena get-query-execution --query-execution-id $QUERY_ID \
-    --query 'QueryExecution.Status.StateChangeReason' --output text --region us-west-2
-fi
-
-#─────────────────────────────────────────────────────────────────────────────
-# Test Athena query
-#─────────────────────────────────────────────────────────────────────────────
-echo ""
-echo "Testing Athena queries..."
-TEST_QUERY_ID=$(aws athena start-query-execution \
-  --query-string "SELECT COUNT(*) as total FROM acme_telemetry.streaming_events" \
-  --work-group primary \
-  --result-configuration "OutputLocation=s3://acme-telemetry-data-${ACCOUNT}-us-west-2/athena-results/" \
-  --region us-west-2 \
-  --query 'QueryExecutionId' --output text)
-
-sleep 5
-TOTAL=$(aws athena get-query-results --query-execution-id $TEST_QUERY_ID \
-  --query 'ResultSet.Rows[1].Data[0].VarCharValue' --output text --region us-west-2 2>/dev/null)
-echo "✓ streaming_events: $TOTAL rows"
-
-echo ""
-echo "════════════════════════════════════════════════════════════════════"
-echo "✓ DATA GENERATION COMPLETE"
-echo "════════════════════════════════════════════════════════════════════"
-echo "Tables ready in Athena (acme_telemetry database):"
-echo "  - streaming_events (partitioned)"
-echo "  - customers"
-echo "  - titles"
-echo "  - campaigns"
-echo "════════════════════════════════════════════════════════════════════"
-```
-
-**Note**: The batch generator outputs:
-- `telemetry/` - Hive partitioned (`year=/month=/day=/hour=`)
-- `customers/`, `titles/`, `campaigns/` - Single Parquet files
-
 ## Stacks
 
 | Stack | Resources |
 |-------|-----------|
 | `AcmeKinesisStack` | Kinesis Data Stream (On-Demand mode, 24hr retention) |
-| `AcmeDataLakeStack` | S3 bucket, Glue database and table |
+| `AcmeDataLakeStack` | S3 bucket, Glue database and tables |
 | `AcmeDataGenStack` | Generator/Producer Lambdas, Firehose delivery, EventBridge schedule |
 
-## Outputs
+## Stack Outputs
 
 | Stack | Output | Description |
 |-------|--------|-------------|
@@ -346,36 +163,11 @@ SELECT hour, COUNT(*) as events,
 FROM acme_telemetry.streaming_events
 GROUP BY hour ORDER BY hour;
 
--- Daily summary
-SELECT day, COUNT(*) as events,
-       COUNT(DISTINCT customer_id) as unique_users,
-       AVG(watch_duration_seconds) as avg_watch_secs
-FROM acme_telemetry.streaming_events
-GROUP BY day ORDER BY day;
-
 -- Single partition query (efficient)
 SELECT event_type, COUNT(*) as count
 FROM acme_telemetry.streaming_events
 WHERE year='2026' AND month='01' AND day='15'
 GROUP BY event_type;
-```
-
-### Engagement Metrics
-```sql
--- Completion rates by event type
-SELECT event_type,
-       AVG(completion_percentage) as avg_completion,
-       AVG(watch_duration_seconds) as avg_duration
-FROM acme_telemetry.streaming_events
-GROUP BY event_type;
-
--- Top customers by watch time
-SELECT customer_id,
-       SUM(watch_duration_seconds) as total_watch_time,
-       COUNT(*) as sessions
-FROM acme_telemetry.streaming_events
-GROUP BY customer_id
-ORDER BY total_watch_time DESC LIMIT 10;
 ```
 
 ### Customer Analytics
@@ -427,6 +219,9 @@ ORDER BY conversions DESC LIMIT 10;
 ## Manual Testing
 
 ```bash
+# Set account ID
+export ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+
 # Invoke generator manually
 aws lambda invoke --function-name acme-data-generator --region us-west-2 /dev/stdout
 
@@ -434,16 +229,16 @@ aws lambda invoke --function-name acme-data-generator --region us-west-2 /dev/st
 aws kinesis describe-stream-summary --stream-name acme-telemetry-stream --region us-west-2
 
 # Check S3 data
-aws s3 ls s3://acme-telemetry-data-<account>-us-west-2/telemetry/ --recursive | tail -10
+aws s3 ls s3://acme-telemetry-data-${ACCOUNT}-us-west-2/telemetry/ --recursive | tail -10
 
 # Repair Athena partitions (after new data arrives)
 aws athena start-query-execution \
   --query-string "MSCK REPAIR TABLE acme_telemetry.streaming_events" \
-  --result-configuration "OutputLocation=s3://acme-telemetry-data-<account>-us-west-2/athena-results/" \
+  --result-configuration "OutputLocation=s3://acme-telemetry-data-${ACCOUNT}-us-west-2/athena-results/" \
   --region us-west-2
 ```
 
-## Logs
+## Viewing Logs
 
 ```bash
 # Generator Lambda
@@ -493,16 +288,17 @@ aws glue get-tables --database-name acme_telemetry --region us-west-2 \
   --query 'TableList[*].Name' --output text
 ```
 
-### CDK Deploy Fails
+### Common Issues
 
-| Error | Solution |
+| Issue | Solution |
 |-------|----------|
 | `CDK bootstrap required` | Run `cdk bootstrap aws://ACCOUNT/us-west-2` |
 | `Unable to locate credentials` | Run `aws configure` or check IAM permissions |
 | `Resource already exists` | Stack partially deployed - run `cdk destroy --all` then redeploy |
 
 ### Athena Query Fails with HIVE_CURSOR_ERROR
-This usually means schema mismatch between Parquet files and Glue table. Fix by recreating the table:
+
+Schema mismatch between Parquet files and Glue table. Fix by recreating the table:
 
 ```sql
 DROP TABLE IF EXISTS acme_telemetry.streaming_events;
@@ -528,29 +324,15 @@ MSCK REPAIR TABLE acme_telemetry.streaming_events;
 ```
 
 ### No Data in Athena Queries
-1. Check S3 has data: `aws s3 ls s3://acme-telemetry-data-<ACCOUNT>-us-west-2/telemetry/ --recursive`
+
+1. Check S3 has data: `aws s3 ls s3://acme-telemetry-data-${ACCOUNT}-us-west-2/telemetry/ --recursive`
 2. Run partition repair: `MSCK REPAIR TABLE acme_telemetry.streaming_events`
 3. Verify partition format matches Glue schema (`year=/month=/day=/hour=`)
 
 ### Python Dependency Issues on macOS
+
 Use virtual environment:
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install pandas pyarrow click tqdm boto3 faker
-```
-
-## Destroy
-
-```bash
-# Remove all stacks
-npx cdk destroy --all
-
-# Kinesis Data Stream may not be deleted by CDK - delete manually if needed
-aws kinesis delete-stream --stream-name acme-telemetry-stream --region us-west-2
-
-# Clean up orphaned CloudWatch log groups
-for log_group in $(aws logs describe-log-groups --region us-west-2 \
-  --query 'logGroups[?contains(logGroupName, `acme`)].logGroupName' --output text); do
-  aws logs delete-log-group --log-group-name "$log_group" --region us-west-2
-done
 ```
