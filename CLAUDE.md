@@ -158,15 +158,18 @@ cd data-stack/consolidated-data-stack
 python3 -m venv .venv && source .venv/bin/activate
 pip install pandas pyarrow click tqdm boto3 faker
 
+# Set account ID
+export ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+
 # Generate data (adjust counts as needed)
 python data_generation/main.py --customers 1000 --titles 500 --telemetry 100000 --campaigns 50
 
 # Upload to S3 (partition format must match Glue: year=/month=/day=/hour=)
-aws s3 sync output/telemetry/ s3://acme-telemetry-data-<ACCOUNT>-us-west-2/telemetry/
+aws s3 sync output/ s3://acme-telemetry-data-${ACCOUNT}-us-west-2/ --exclude "metadata.json"
 
 # Repair Glue table to discover partitions
 aws athena start-query-execution --query-string "MSCK REPAIR TABLE acme_telemetry.streaming_events" \
-  --work-group primary --result-configuration OutputLocation=s3://acme-telemetry-data-<ACCOUNT>-us-west-2/athena-results/ --region us-west-2
+  --work-group primary --result-configuration "OutputLocation=s3://acme-telemetry-data-${ACCOUNT}-us-west-2/athena-results/" --region us-west-2
 ```
 
 **Gotchas:**
@@ -197,3 +200,41 @@ cd ../frontend/acme-chat && ./scripts/deploy-frontend.sh
 ```
 
 All safeguards are automated - no manual secret sync needed.
+
+## Deployment Verification
+
+Quick checks to verify deployment is working:
+
+```bash
+# Set account
+export ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+
+# Check stacks deployed
+aws cloudformation describe-stacks --stack-name AcmeAgentCoreStack --query 'Stacks[0].StackStatus' --output text --region us-west-2
+aws cloudformation describe-stacks --stack-name AcmeKinesisStack --query 'Stacks[0].StackStatus' --output text --region us-west-2
+
+# Get frontend URL
+aws cloudformation describe-stacks --stack-name AcmeAgentCoreStack \
+  --query 'Stacks[0].Outputs[?OutputKey==`FrontendUrl`].OutputValue' --output text --region us-west-2
+
+# Test Cognito auth
+CLIENT_ID=$(aws cloudformation describe-stacks --stack-name AcmeAgentCoreStack \
+  --query 'Stacks[0].Outputs[?OutputKey==`CognitoAppClientId`].OutputValue' --output text --region us-west-2)
+aws cognito-idp initiate-auth --client-id $CLIENT_ID --auth-flow USER_PASSWORD_AUTH \
+  --auth-parameters 'USERNAME=user1@test.com,PASSWORD=Abcd1234@' --region us-west-2 \
+  --query 'AuthenticationResult.AccessToken' --output text | head -c 20 && echo "... ✓"
+
+# Test Athena data
+aws athena start-query-execution --query-string "SELECT COUNT(*) FROM acme_telemetry.streaming_events" \
+  --work-group primary --result-configuration "OutputLocation=s3://acme-telemetry-data-${ACCOUNT}-us-west-2/athena-results/" \
+  --region us-west-2
+```
+
+## Common Deployment Errors
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `Cannot find asset at .../build` | Frontend not built | Run `npm run build` in frontend/acme-chat first |
+| `Docker daemon is not running` | Docker not started | Start Docker Desktop |
+| `CDK bootstrap required` | First deploy | Run `cdk bootstrap aws://ACCOUNT/us-west-2` |
+| `HIVE_CURSOR_ERROR` | Schema mismatch | See data-stack README for table recreation |

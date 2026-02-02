@@ -73,6 +73,41 @@ This CDK stack deploys the complete ACME Corp chatbot infrastructure on AWS, inc
 - Docker (for building container images)
 - AWS CDK CLI (`npm install -g aws-cdk`)
 
+### Verify Prerequisites
+
+Run these checks before starting deployment:
+
+```bash
+#─────────────────────────────────────────────────────────────────────────────
+# PREREQUISITES CHECKLIST - All must pass before deploying
+#─────────────────────────────────────────────────────────────────────────────
+
+echo "Checking prerequisites..."
+
+# 1. Node.js 18+
+NODE_VERSION=$(node --version 2>/dev/null | cut -d'v' -f2 | cut -d'.' -f1)
+[ "$NODE_VERSION" -ge 18 ] 2>/dev/null && echo "✓ Node.js: $(node --version)" || echo "✗ Node.js 18+ required (found: $(node --version 2>/dev/null || echo 'not installed'))"
+
+# 2. npm
+npm --version > /dev/null 2>&1 && echo "✓ npm: $(npm --version)" || echo "✗ npm not found"
+
+# 3. Docker running
+docker info > /dev/null 2>&1 && echo "✓ Docker: running" || echo "✗ Docker: NOT RUNNING - start Docker Desktop"
+
+# 4. AWS credentials
+aws sts get-caller-identity > /dev/null 2>&1 && echo "✓ AWS credentials: configured (Account: $(aws sts get-caller-identity --query Account --output text))" || echo "✗ AWS credentials: not configured - run 'aws configure'"
+
+# 5. AWS region
+REGION=$(aws configure get region 2>/dev/null)
+[ "$REGION" = "us-west-2" ] && echo "✓ AWS region: us-west-2" || echo "⚠ AWS region: ${REGION:-not set} (expected: us-west-2). Set with: export AWS_REGION=us-west-2"
+
+# 6. CDK installed
+cdk --version > /dev/null 2>&1 && echo "✓ CDK: $(cdk --version)" || echo "✗ CDK not found - install with: npm install -g aws-cdk"
+
+echo ""
+echo "Fix any ✗ items before proceeding."
+```
+
 ## Quick Start
 
 ### 1. Install Dependencies
@@ -85,24 +120,58 @@ npm install
 ### 2. Bootstrap CDK (First Time Only)
 
 ```bash
-cdk bootstrap
+# Get your account ID
+ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+
+# Bootstrap CDK (safe to run multiple times)
+cdk bootstrap aws://${ACCOUNT}/us-west-2
+
+# ✓ VERIFY: Bootstrap succeeded
+aws cloudformation describe-stacks --stack-name CDKToolkit --region us-west-2 \
+  --query 'Stacks[0].StackStatus' --output text
+# Expected: CREATE_COMPLETE or UPDATE_COMPLETE
 ```
 
 ### 3. Build Frontend FIRST (Required)
 
-> **Critical**: The CDK stack references the frontend `build/` directory for S3 deployment. You must build the frontend before running `cdk deploy` or the deployment will fail.
+> **⚠️ Critical**: The CDK stack references the frontend `build/` directory for S3 deployment. You **MUST** build the frontend before running `cdk deploy` or the deployment will fail with "Cannot find asset" error.
 
 ```bash
 cd ../frontend/acme-chat
 npm install
 npm run build
+
+# ✓ VERIFY: Build succeeded (this check prevents deployment failures)
+if [ -f "build/index.html" ]; then
+  echo "✓ Frontend build successful - safe to deploy CDK"
+  ls -la build/ | head -5
+else
+  echo "✗ FRONTEND BUILD FAILED - do NOT run cdk deploy"
+  echo "  Fix build errors above before proceeding"
+  exit 1
+fi
+
 cd ../../cdk
 ```
 
 ### 4. Deploy CDK Stack
 
 ```bash
+# Pre-flight check: ensure frontend is built
+[ -f "../frontend/acme-chat/build/index.html" ] && echo "✓ Frontend build exists" || { echo "✗ Frontend not built - run step 3 first"; exit 1; }
+
+# Deploy
 cdk deploy AcmeAgentCoreStack
+
+# ✓ VERIFY: Deployment succeeded
+aws cloudformation describe-stacks --stack-name AcmeAgentCoreStack \
+  --query 'Stacks[0].StackStatus' --output text --region us-west-2
+# Expected: CREATE_COMPLETE or UPDATE_COMPLETE
+
+# Save outputs for later use
+echo "Saving stack outputs..."
+aws cloudformation describe-stacks --stack-name AcmeAgentCoreStack \
+  --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' --output table --region us-west-2
 ```
 
 ### 5. Deploy Frontend with Correct Config

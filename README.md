@@ -127,30 +127,108 @@ aws-agent-inter-operability-repo/
 - Docker (for building container images)
 - AWS CDK CLI (`npm install -g aws-cdk`)
 
-### Full Deployment (Both Stacks)
+### Verify Prerequisites (Run These First!)
 
-Deploy both stacks in order - data stack first (agent queries its Athena data):
+Before starting deployment, verify all prerequisites are met:
 
 ```bash
-# 1. Deploy Data Stack (Kinesis, Firehose, S3, Glue, Athena)
+# 1. Check Node.js version (must be 18+)
+node --version
+# Expected: v18.x.x or v20.x.x or higher
+
+# 2. Check npm is available
+npm --version
+# Expected: 9.x.x or higher
+
+# 3. Check Docker is running
+docker info > /dev/null 2>&1 && echo "✓ Docker is running" || echo "✗ Docker is NOT running - start Docker Desktop"
+
+# 4. Check AWS credentials are configured
+aws sts get-caller-identity
+# Expected: JSON with Account, UserId, Arn (if you see an error, run 'aws configure')
+
+# 5. Check AWS region is set correctly
+aws configure get region || echo "No default region set"
+# Expected: us-west-2 (or set it with: export AWS_REGION=us-west-2)
+
+# 6. Check CDK is installed
+cdk --version
+# Expected: 2.x.x (if missing: npm install -g aws-cdk)
+
+# 7. Store your account ID for later use
+export ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+echo "Your AWS Account ID: $ACCOUNT"
+```
+
+**If any check fails, fix it before proceeding.** Common fixes:
+- Docker not running → Start Docker Desktop
+- AWS credentials error → Run `aws configure` or check your IAM permissions
+- CDK not found → Run `npm install -g aws-cdk`
+- Wrong Node version → Use nvm: `nvm install 20 && nvm use 20`
+
+### Full Deployment (Both Stacks)
+
+Deploy both stacks in order - data stack first (agent queries its Athena data).
+
+> **Important**: Run each step and verify it succeeds before moving to the next. The frontend MUST be built before `cdk deploy` because the CDK stack references the `build/` directory.
+
+```bash
+# Set your account ID (used in later commands)
+export ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+echo "Deploying to account: $ACCOUNT"
+
+#─────────────────────────────────────────────────────────────────────────────
+# STEP 1: Deploy Data Stack (Kinesis, Firehose, S3, Glue, Athena)
+#─────────────────────────────────────────────────────────────────────────────
 cd data-stack/consolidated-data-stack
-npm install && npm run build && cdk deploy --all --require-approval never
+npm install
+npm run build
+cdk bootstrap   # First time only - safe to run again
+cdk deploy --all --require-approval never
 
-# 2. Build Frontend FIRST (required before CDK deploy)
+# ✓ VERIFY: Check data stack deployed successfully
+aws cloudformation describe-stacks --stack-name AcmeKinesisStack --query 'Stacks[0].StackStatus' --output text --region us-west-2
+# Expected: CREATE_COMPLETE or UPDATE_COMPLETE
+
+#─────────────────────────────────────────────────────────────────────────────
+# STEP 2: Build Frontend FIRST (required before CDK deploy)
+#─────────────────────────────────────────────────────────────────────────────
 cd ../../agent-stack/frontend/acme-chat
-npm install && npm run build
+npm install
+npm run build
 
-# 3. Deploy Agent Stack (Cognito, Agent, MCP servers)
+# ✓ VERIFY: Check build folder exists and has files
+ls -la build/index.html && echo "✓ Frontend build successful" || echo "✗ BUILD FAILED - do not proceed"
+
+#─────────────────────────────────────────────────────────────────────────────
+# STEP 3: Deploy Agent Stack (Cognito, Agent, MCP servers)
+#─────────────────────────────────────────────────────────────────────────────
 cd ../../cdk
-npm install && cdk deploy AcmeAgentCoreStack --require-approval never
+npm install
+cdk deploy AcmeAgentCoreStack --require-approval never
 
-# 4. Deploy Frontend with correct config from CloudFormation
+# ✓ VERIFY: Check agent stack deployed successfully
+aws cloudformation describe-stacks --stack-name AcmeAgentCoreStack --query 'Stacks[0].StackStatus' --output text --region us-west-2
+# Expected: CREATE_COMPLETE or UPDATE_COMPLETE
+
+#─────────────────────────────────────────────────────────────────────────────
+# STEP 4: Deploy Frontend with correct config from CloudFormation
+#─────────────────────────────────────────────────────────────────────────────
 cd ../frontend/acme-chat
 ./scripts/deploy-frontend.sh
 
-# 5. Create test user
+# ✓ VERIFY: Get the CloudFront URL
+FRONTEND_URL=$(aws cloudformation describe-stacks --stack-name AcmeAgentCoreStack \
+  --query 'Stacks[0].Outputs[?OutputKey==`FrontendUrl`].OutputValue' --output text --region us-west-2)
+echo "Frontend URL: $FRONTEND_URL"
+
+#─────────────────────────────────────────────────────────────────────────────
+# STEP 5: Create test user
+#─────────────────────────────────────────────────────────────────────────────
 USER_POOL_ID=$(aws cloudformation describe-stacks --stack-name AcmeAgentCoreStack \
   --query 'Stacks[0].Outputs[?OutputKey==`CognitoUserPoolId`].OutputValue' --output text --region us-west-2)
+
+echo "Creating user in User Pool: $USER_POOL_ID"
 
 aws cognito-idp admin-create-user --user-pool-id $USER_POOL_ID \
   --username user1@test.com --user-attributes Name=email,Value=user1@test.com Name=email_verified,Value=true \
@@ -158,9 +236,23 @@ aws cognito-idp admin-create-user --user-pool-id $USER_POOL_ID \
 
 aws cognito-idp admin-set-user-password --user-pool-id $USER_POOL_ID \
   --username user1@test.com --password 'Abcd1234@' --permanent --region us-west-2
-```
 
-> **Important**: The frontend must be built before `cdk deploy` because the CDK stack references the `build/` directory for S3 deployment.
+# ✓ VERIFY: Check user was created successfully
+aws cognito-idp admin-get-user --user-pool-id $USER_POOL_ID --username user1@test.com \
+  --query 'UserStatus' --output text --region us-west-2
+# Expected: CONFIRMED
+
+echo ""
+echo "════════════════════════════════════════════════════════════════════"
+echo "✓ DEPLOYMENT COMPLETE"
+echo "════════════════════════════════════════════════════════════════════"
+echo "Frontend URL: $FRONTEND_URL"
+echo "Login: user1@test.com / Abcd1234@"
+echo ""
+echo "Note: CloudFront may take 1-2 minutes to propagate. If you get errors,"
+echo "      wait a moment and refresh the page."
+echo "════════════════════════════════════════════════════════════════════"
+```
 
 ### Generate Batch Data (Optional but Recommended)
 
@@ -169,25 +261,77 @@ The streaming pipeline generates data every 5 minutes. For immediate testing wit
 ```bash
 cd data-stack/consolidated-data-stack
 
+# Set account ID
+export ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+echo "Using account: $ACCOUNT"
+
+# ✓ VERIFY: Check S3 bucket exists (created by data stack)
+aws s3 ls s3://acme-telemetry-data-${ACCOUNT}-us-west-2/ > /dev/null 2>&1 \
+  && echo "✓ S3 bucket exists" \
+  || echo "✗ S3 bucket not found - deploy data stack first"
+
+#─────────────────────────────────────────────────────────────────────────────
 # Setup Python environment
-python3 -m venv .venv && source .venv/bin/activate
+#─────────────────────────────────────────────────────────────────────────────
+python3 -m venv .venv
+source .venv/bin/activate
 pip install pandas pyarrow click tqdm boto3 faker
 
+# ✓ VERIFY: Check Python packages installed
+python -c "import pandas, pyarrow, faker; print('✓ Python packages installed')"
+
+#─────────────────────────────────────────────────────────────────────────────
 # Generate all data (customers, titles, campaigns, telemetry)
+#─────────────────────────────────────────────────────────────────────────────
 python data_generation/main.py --customers 1000 --titles 500 --telemetry 100000 --campaigns 50
 
-# Get your account ID
-ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+# ✓ VERIFY: Check output files were created
+ls -la output/
+# Expected: telemetry/, customers/, titles/, campaigns/ directories
 
+#─────────────────────────────────────────────────────────────────────────────
 # Upload all tables to S3
+#─────────────────────────────────────────────────────────────────────────────
 aws s3 sync output/ s3://acme-telemetry-data-${ACCOUNT}-us-west-2/ --exclude "metadata.json"
 
+# ✓ VERIFY: Check data uploaded
+aws s3 ls s3://acme-telemetry-data-${ACCOUNT}-us-west-2/telemetry/ --recursive | head -5
+echo "..."
+aws s3 ls s3://acme-telemetry-data-${ACCOUNT}-us-west-2/telemetry/ --recursive | wc -l | xargs -I{} echo "Total files: {}"
+
+#─────────────────────────────────────────────────────────────────────────────
 # Repair Athena partitions (telemetry only - it's partitioned)
-aws athena start-query-execution \
+#─────────────────────────────────────────────────────────────────────────────
+QUERY_ID=$(aws athena start-query-execution \
   --query-string "MSCK REPAIR TABLE acme_telemetry.streaming_events" \
   --work-group primary \
   --result-configuration "OutputLocation=s3://acme-telemetry-data-${ACCOUNT}-us-west-2/athena-results/" \
-  --region us-west-2
+  --region us-west-2 \
+  --query 'QueryExecutionId' --output text)
+
+echo "Partition repair query started: $QUERY_ID"
+echo "Waiting for completion..."
+sleep 5
+
+# ✓ VERIFY: Check query succeeded
+aws athena get-query-execution --query-execution-id $QUERY_ID \
+  --query 'QueryExecution.Status.State' --output text --region us-west-2
+# Expected: SUCCEEDED
+
+#─────────────────────────────────────────────────────────────────────────────
+# Test Athena query
+#─────────────────────────────────────────────────────────────────────────────
+echo "Testing Athena query..."
+TEST_QUERY_ID=$(aws athena start-query-execution \
+  --query-string "SELECT COUNT(*) as total FROM acme_telemetry.streaming_events" \
+  --work-group primary \
+  --result-configuration "OutputLocation=s3://acme-telemetry-data-${ACCOUNT}-us-west-2/athena-results/" \
+  --region us-west-2 \
+  --query 'QueryExecutionId' --output text)
+
+sleep 5
+aws athena get-query-results --query-execution-id $TEST_QUERY_ID \
+  --query 'ResultSet.Rows[1].Data[0].VarCharValue' --output text --region us-west-2 | xargs -I{} echo "✓ Total events in Athena: {}"
 ```
 
 This creates 4 Athena tables: `streaming_events`, `customers`, `titles`, `campaigns`.
@@ -252,6 +396,70 @@ After deploying the agent stack, you'll get:
 | `AgentArn` | Main agent runtime ARN |
 | `CognitoUserPoolId` | User pool ID for authentication |
 | `CognitoAppClientId` | App client ID for frontend |
+
+## Troubleshooting
+
+### Common Deployment Errors
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| `Cannot find asset at .../build` | Frontend not built before CDK deploy | Run `cd agent-stack/frontend/acme-chat && npm run build` first |
+| `CDK bootstrap required` | First deployment to this account/region | Run `cdk bootstrap aws://ACCOUNT_ID/us-west-2` |
+| `Docker daemon is not running` | Docker Desktop not started | Start Docker Desktop and wait for it to initialize |
+| `Unable to locate credentials` | AWS CLI not configured | Run `aws configure` or set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY |
+| `User already exists` | Test user already created | Skip user creation or use different email |
+| `Stack AcmeAgentCoreStack does not exist` | Agent stack not deployed | Deploy agent stack first with `cdk deploy AcmeAgentCoreStack` |
+| `HIVE_CURSOR_ERROR in Athena` | Schema mismatch | See data-stack README for table recreation SQL |
+
+### Quick Diagnostic Commands
+
+```bash
+# Check all prerequisites at once
+echo "=== Prerequisites Check ===" && \
+node --version && \
+npm --version && \
+docker info > /dev/null 2>&1 && echo "Docker: running" || echo "Docker: NOT RUNNING" && \
+aws sts get-caller-identity --query 'Account' --output text && \
+cdk --version
+
+# Check stack status
+aws cloudformation describe-stacks --stack-name AcmeAgentCoreStack \
+  --query 'Stacks[0].{Status:StackStatus,Reason:StackStatusReason}' --output table --region us-west-2
+
+# Check for deployment errors in CloudFormation events
+aws cloudformation describe-stack-events --stack-name AcmeAgentCoreStack \
+  --query 'StackEvents[?ResourceStatus==`CREATE_FAILED` || ResourceStatus==`UPDATE_FAILED`].[LogicalResourceId,ResourceStatusReason]' \
+  --output table --region us-west-2
+
+# Check agent logs for runtime errors
+aws logs tail /aws/bedrock-agentcore/runtimes/acme_chatbot --region us-west-2 --since 10m 2>/dev/null || echo "No agent logs yet"
+```
+
+### Frontend Build Fails
+
+```bash
+# Clean and rebuild
+cd agent-stack/frontend/acme-chat
+rm -rf node_modules build
+npm install
+npm run build
+
+# If TypeScript errors, check Node version
+node --version  # Should be 18+
+```
+
+### CDK Synthesis Fails
+
+```bash
+# Check for TypeScript errors
+cd agent-stack/cdk
+npm run build  # Should complete without errors
+
+# If errors, try clean install
+rm -rf node_modules
+npm install
+npm run build
+```
 
 ## Cleanup
 
