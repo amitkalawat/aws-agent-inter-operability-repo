@@ -417,11 +417,10 @@ SELECT campaign_type, COUNT(*) as campaigns,
 FROM acme_telemetry.campaigns
 GROUP BY campaign_type;
 
--- Top performing campaigns
+-- Top performing campaigns (by conversions)
 SELECT campaign_name, advertiser_name, impressions,
-       click_through_rate, conversion_rate
+       click_through_rate, conversion_rate, conversions
 FROM acme_telemetry.campaigns
-WHERE status = 'completed'
 ORDER BY conversions DESC LIMIT 10;
 ```
 
