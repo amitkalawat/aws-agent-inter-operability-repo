@@ -58,6 +58,15 @@ export const Config = {
     },
   },
 
+  // MCP Gateway Configuration
+  // Aggregates all MCP servers behind a single endpoint
+  gateway: {
+    name: 'acme-mcp-gateway',
+    description: 'ACME Corp unified MCP Gateway for tool aggregation',
+    searchType: 'SEMANTIC' as const, // 'SEMANTIC' for AI-powered tool discovery, 'NONE' for exact match
+    mcpVersions: ['2025-03-26'],
+  },
+
   // Visualization bucket for code interpreter charts
   visualization: {
     bucketPrefix: 'acme-visualizations',

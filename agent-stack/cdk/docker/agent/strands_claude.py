@@ -31,9 +31,25 @@ AWS_REGION = os.environ.get('AWS_REGION', 'us-west-2')
 BEDROCK_MODEL_ID = os.environ.get('BEDROCK_MODEL_ID', 'anthropic.claude-haiku-4-5-20250414-v1:0')
 
 
+def get_mcp_gateway_endpoint() -> Optional[str]:
+    """
+    Get MCP Gateway endpoint from environment variable (set by CDK).
+    Gateway provides a unified endpoint for all MCP servers.
+
+    Returns the Gateway endpoint URL if configured, None otherwise.
+    """
+    gateway_endpoint = os.environ.get('MCP_GATEWAY_ENDPOINT')
+    if gateway_endpoint:
+        print(f"MCP Gateway endpoint configured: {gateway_endpoint[:80]}...")
+        return gateway_endpoint
+    return None
+
+
 def get_mcp_endpoints_from_env() -> Dict[str, str]:
     """
-    Get MCP endpoints from environment variables (set by CDK).
+    Get individual MCP endpoints from environment variables (set by CDK).
+    This is the fallback mode when Gateway is not available.
+
     Converts ARNs to HTTP URLs for the AgentCore API.
 
     CDK sets environment variables like:
@@ -109,7 +125,13 @@ def extract_text_from_event(event) -> str:
 
 
 class MCPManager:
-    """Manages MCP client creation and bearer token authentication"""
+    """
+    Manages MCP client creation and bearer token authentication.
+
+    Supports two modes:
+    1. Gateway mode (preferred): Single unified endpoint for all MCP tools
+    2. Direct mode (fallback): Individual connections to each MCP server
+    """
 
     def __init__(self):
         self._bearer_token: Optional[str] = None
@@ -117,6 +139,9 @@ class MCPManager:
         self._credentials: Optional[Dict[str, str]] = None
         self._mcp_available: bool = False
         self._initialized: bool = False
+        self._gateway_endpoint: Optional[str] = None
+        self._endpoints: Dict[str, str] = {}
+        self._use_gateway: bool = False
 
     def _init_credentials(self) -> bool:
         """Initialize credentials and check if MCP is available"""
@@ -126,18 +151,26 @@ class MCPManager:
         self._initialized = True
 
         try:
-            # Get MCP endpoints from environment variables (set by CDK)
-            self._endpoints = get_mcp_endpoints_from_env()
-
             # Get Cognito credentials from secrets (for OAuth bearer token)
             self._credentials = secrets_manager.get_mcp_credentials()
 
-            if self._endpoints:
+            # Check for Gateway endpoint first (preferred mode)
+            self._gateway_endpoint = get_mcp_gateway_endpoint()
+
+            if self._gateway_endpoint:
+                self._use_gateway = True
                 self._mcp_available = True
-                print(f"MCP integration available with endpoints: {list(self._endpoints.keys())}")
+                print("MCP Gateway mode enabled - using unified endpoint")
             else:
-                print("No MCP endpoints configured in environment variables")
-                self._mcp_available = False
+                # Fallback to individual MCP endpoints
+                self._endpoints = get_mcp_endpoints_from_env()
+                if self._endpoints:
+                    self._use_gateway = False
+                    self._mcp_available = True
+                    print(f"MCP Direct mode - endpoints: {list(self._endpoints.keys())}")
+                else:
+                    print("No MCP endpoints configured (neither Gateway nor direct)")
+                    self._mcp_available = False
 
         except Exception as e:
             print(f"Could not initialize MCP: {e}")
@@ -148,6 +181,11 @@ class MCPManager:
     def is_mcp_available(self) -> bool:
         """Check if MCP integration is available"""
         return self._init_credentials()
+
+    def is_gateway_mode(self) -> bool:
+        """Check if using Gateway mode"""
+        self._init_credentials()
+        return self._use_gateway
 
     def _get_bearer_token(self) -> str:
         """Get bearer token from Cognito with caching"""
@@ -199,8 +237,43 @@ class MCPManager:
             print(f"Failed to get MCP bearer token: {e}")
             raise
 
+    def create_gateway_transport(self):
+        """Create MCP transport for Gateway (unified endpoint)"""
+        try:
+            if not self._gateway_endpoint:
+                raise Exception("Gateway endpoint not configured")
+
+            bearer_token = self._get_bearer_token()
+            headers = {
+                "authorization": f"Bearer {bearer_token}",
+                "Content-Type": "application/json",
+                "Accept": "application/json, text/event-stream"
+            }
+
+            print(f"Creating Gateway MCP transport: {self._gateway_endpoint[:80]}...")
+            return streamablehttp_client(
+                self._gateway_endpoint,
+                headers=headers,
+                timeout=120,
+                terminate_on_close=False
+            )
+        except Exception as e:
+            print(f"Failed to create Gateway transport: {e}")
+            raise
+
+    def create_gateway_client(self) -> MCPClient:
+        """Create unified MCP client for Gateway (all tools in one client)"""
+        try:
+            print("Initializing MCP Gateway client...")
+            client = MCPClient(lambda: self.create_gateway_transport())
+            print("MCP Gateway client initialized successfully")
+            return client
+        except Exception as e:
+            print(f"Failed to create Gateway MCP client: {e}")
+            raise
+
     def create_mcp_transport(self, url_key: str):
-        """Create MCP transport for a given URL key"""
+        """Create MCP transport for a given URL key (direct mode)"""
         try:
             # Use endpoint from environment variables (not secrets)
             if not hasattr(self, '_endpoints') or url_key not in self._endpoints:
@@ -222,7 +295,7 @@ class MCPManager:
             raise
 
     def create_aws_docs_client(self) -> MCPClient:
-        """Create MCP client for AWS Documentation"""
+        """Create MCP client for AWS Documentation (direct mode)"""
         try:
             print("Initializing AWS Documentation MCP client...")
             client = MCPClient(lambda: self.create_mcp_transport('MCP_DOCS_URL'))
@@ -233,7 +306,7 @@ class MCPManager:
             raise
 
     def create_dataproc_client(self) -> MCPClient:
-        """Create MCP client for DataProcessing"""
+        """Create MCP client for DataProcessing (direct mode)"""
         try:
             print("Initializing DataProcessing MCP client...")
             client = MCPClient(lambda: self.create_mcp_transport('MCP_DATAPROC_URL'))
@@ -434,15 +507,26 @@ def create_agent_with_memory(payload: dict) -> Tuple[Agent, Any, list, str]:
     mcp_clients = []
 
     if mcp_manager.is_mcp_available():
-        try:
-            mcp_clients.append(('aws_docs', mcp_manager.create_aws_docs_client()))
-        except Exception as e:
-            print(f"AWS docs client unavailable: {e}")
+        if mcp_manager.is_gateway_mode():
+            # Gateway mode: single unified client for all MCP tools
+            try:
+                gateway_client = mcp_manager.create_gateway_client()
+                mcp_clients.append(('gateway', gateway_client))
+                print("Using MCP Gateway mode - single unified client")
+            except Exception as e:
+                print(f"Gateway client unavailable: {e}")
+                # Could fall back to direct mode here if desired
+        else:
+            # Direct mode: individual clients for each MCP server
+            try:
+                mcp_clients.append(('aws_docs', mcp_manager.create_aws_docs_client()))
+            except Exception as e:
+                print(f"AWS docs client unavailable: {e}")
 
-        try:
-            mcp_clients.append(('dataproc', mcp_manager.create_dataproc_client()))
-        except Exception as e:
-            print(f"DataProcessing client unavailable: {e}")
+            try:
+                mcp_clients.append(('dataproc', mcp_manager.create_dataproc_client()))
+            except Exception as e:
+                print(f"DataProcessing client unavailable: {e}")
     else:
         print("MCP integration not configured - agent running without MCP tools")
 

@@ -24,7 +24,16 @@ export interface AgentRuntimeConstructProps {
   readonly frontendClient: IUserPoolClient;
   readonly mcpCredentials: ISecret;
   readonly memory: IMemory;
-  readonly mcpServerEndpoints: Record<string, string>;
+  /**
+   * MCP Gateway endpoint URL (preferred - single unified endpoint)
+   * When set, agent connects to Gateway instead of individual MCP servers
+   */
+  readonly mcpGatewayEndpoint?: string;
+  /**
+   * Individual MCP server endpoints (fallback/legacy mode)
+   * Used when Gateway is not available or for direct MCP connections
+   */
+  readonly mcpServerEndpoints?: Record<string, string>;
   readonly removalPolicy?: RemovalPolicy;
 }
 
@@ -66,11 +75,20 @@ export class AgentRuntimeConstruct extends Construct {
     // Create the runtime artifact from Docker context
     const artifact = AgentRuntimeArtifact.fromAsset(dockerPath);
 
-    // Build MCP server endpoints as environment variables
-    const mcpEndpointEnvVars: Record<string, string> = {};
-    for (const [name, endpoint] of Object.entries(props.mcpServerEndpoints)) {
-      const envKey = `MCP_SERVER_${name.toUpperCase()}_ENDPOINT`;
-      mcpEndpointEnvVars[envKey] = endpoint;
+    // Build MCP environment variables
+    const mcpEnvVars: Record<string, string> = {};
+
+    // Gateway endpoint (preferred - single unified endpoint)
+    if (props.mcpGatewayEndpoint) {
+      mcpEnvVars['MCP_GATEWAY_ENDPOINT'] = props.mcpGatewayEndpoint;
+    }
+
+    // Individual MCP server endpoints (fallback/legacy mode)
+    if (props.mcpServerEndpoints) {
+      for (const [name, endpoint] of Object.entries(props.mcpServerEndpoints)) {
+        const envKey = `MCP_SERVER_${name.toUpperCase()}_ENDPOINT`;
+        mcpEnvVars[envKey] = endpoint;
+      }
     }
 
     // Create the main agent runtime
@@ -90,7 +108,7 @@ export class AgentRuntimeConstruct extends Construct {
         MEMORY_ID: props.memory.memoryId,
         DOCKER_CONTAINER: '1',
         VISUALIZATION_BUCKET: this.visualizationBucket.bucketName,
-        ...mcpEndpointEnvVars,
+        ...mcpEnvVars,
       },
     });
 
@@ -153,7 +171,7 @@ export class AgentRuntimeConstruct extends Construct {
       })
     );
 
-    // Grant MCP server invocation permissions
+    // Grant MCP server invocation permissions (direct MCP access)
     this.runtime.addToRolePolicy(
       new PolicyStatement({
         effect: Effect.ALLOW,
@@ -161,6 +179,18 @@ export class AgentRuntimeConstruct extends Construct {
           'bedrock-agentcore:InvokeAgentRuntime',
         ],
         resources: [`arn:aws:bedrock-agentcore:${Config.aws.region}:*:runtime/*`],
+      })
+    );
+
+    // Grant Gateway invocation permissions
+    this.runtime.addToRolePolicy(
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: [
+          'bedrock-agentcore:InvokeGateway',
+          'bedrock-agentcore:ListGatewayTools',
+        ],
+        resources: [`arn:aws:bedrock-agentcore:${Config.aws.region}:*:gateway/*`],
       })
     );
 

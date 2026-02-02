@@ -10,6 +10,7 @@ import { CognitoConstruct } from './constructs/cognito-construct';
 import { SecretsConstruct } from './constructs/secrets-construct';
 import { MemoryConstruct } from './constructs/memory-construct';
 import { McpServerConstruct } from './constructs/mcp-server-construct';
+import { GatewayConstruct } from './constructs/gateway-construct';
 import { AgentRuntimeConstruct } from './constructs/agent-runtime-construct';
 import { FrontendConstruct } from './constructs/frontend-construct';
 import { Config } from './config';
@@ -90,6 +91,25 @@ export class AcmeAgentCoreStack extends Stack {
     });
 
     // ========================================
+    // 4a. MCP Gateway (aggregates MCP servers behind single endpoint)
+    // ========================================
+    // Convert the runtimes map to the format expected by GatewayConstruct
+    const mcpServerInfos = Array.from(mcpServers.runtimes.entries()).map(([name, server]) => ({
+      name: name,
+      runtimeArn: server.runtime.agentRuntimeArn,
+    }));
+
+    const gateway = new GatewayConstruct(this, 'McpGateway', {
+      userPool: auth.userPool,
+      frontendClient: auth.frontendClient,
+      mcpClient: auth.mcpClient,
+      mcpCredentials: secrets.mcpCredentials,
+      mcpServers: mcpServerInfos,
+      cognitoDomain: auth.cognitoDomain,
+      removalPolicy,
+    });
+
+    // ========================================
     // 5. Main Agent Runtime
     // ========================================
     const agent = new AgentRuntimeConstruct(this, 'Agent', {
@@ -97,6 +117,9 @@ export class AcmeAgentCoreStack extends Stack {
       frontendClient: auth.frontendClient,
       mcpCredentials: secrets.mcpCredentials,
       memory: memory.memory,
+      // Use Gateway endpoint instead of individual MCP server endpoints
+      mcpGatewayEndpoint: gateway.gatewayEndpoint,
+      // Keep individual endpoints for fallback (optional)
       mcpServerEndpoints: mcpServers.getArns(),
       removalPolicy,
     });
