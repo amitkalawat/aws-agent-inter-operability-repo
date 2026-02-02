@@ -246,6 +246,12 @@ aws athena start-query-execution --query-string "SELECT COUNT(*) FROM acme_telem
   --region us-west-2
 ```
 
+## CDK Alpha Constructs (@aws-cdk/aws-bedrock-agentcore-alpha)
+
+- **Finding available methods**: Check type definitions in `node_modules/@aws-cdk/aws-bedrock-agentcore-alpha/lib/**/*.d.ts`
+- **GatewayAuthorizer options**: `usingAwsIam()` (SigV4) or `usingCustomJwt({discoveryUrl, allowedClients, allowedAudience})`
+- **GatewayCredentialProvider**: `fromOauthIdentityArn({providerArn, secretArn, scopes})`
+
 ## Common Deployment Errors
 
 | Error | Cause | Fix |
@@ -253,4 +259,5 @@ aws athena start-query-execution --query-string "SELECT COUNT(*) FROM acme_telem
 | `Cannot find asset at .../build` | Frontend not built | Run `npm run build` in frontend/acme-chat first |
 | `Docker daemon is not running` | Docker not started | Start Docker Desktop |
 | `CDK bootstrap required` | First deploy | Run `cdk bootstrap aws://ACCOUNT/us-west-2` |
+| `Property 'usingIam' does not exist` | Wrong method name | Use `usingAwsIam()` - check `.d.ts` files |
 | `HIVE_CURSOR_ERROR` | Schema mismatch | See data-stack README for table recreation |
