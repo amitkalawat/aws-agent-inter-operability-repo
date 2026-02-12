@@ -11,6 +11,7 @@ import { SecretsConstruct } from './constructs/secrets-construct';
 import { MemoryConstruct } from './constructs/memory-construct';
 import { McpServerConstruct } from './constructs/mcp-server-construct';
 import { AgentRuntimeConstruct } from './constructs/agent-runtime-construct';
+import { GatewayConstruct } from './constructs/gateway-construct';
 import { FrontendConstruct } from './constructs/frontend-construct';
 import { Config } from './config';
 
@@ -83,9 +84,17 @@ export class AcmeAgentCoreStack extends Stack {
     // 4. MCP Servers
     // ========================================
     const mcpServers = new McpServerConstruct(this, 'McpServers', {
+      mcpCredentials: secrets.mcpCredentials,
+      removalPolicy,
+    });
+
+    // ========================================
+    // 4b. MCP Gateway
+    // ========================================
+    const gateway = new GatewayConstruct(this, 'Gateway', {
       userPool: auth.userPool,
       mcpClient: auth.mcpClient,
-      mcpCredentials: secrets.mcpCredentials,
+      mcpServerArns: mcpServers.getArns(),
       removalPolicy,
     });
 
@@ -98,8 +107,12 @@ export class AcmeAgentCoreStack extends Stack {
       mcpCredentials: secrets.mcpCredentials,
       memory: memory.memory,
       mcpServerEndpoints: mcpServers.getArns(),
+      gatewayUrl: gateway.gateway.gatewayUrl,
       removalPolicy,
     });
+
+    // Grant agent permission to invoke the gateway
+    gateway.gateway.grantInvoke(agent.runtime);
 
     // ========================================
     // 6. Frontend (S3 + CloudFront)
@@ -173,6 +186,7 @@ export class AcmeAgentCoreStack extends Stack {
         agentArn: this.agentArn,
         userPoolId: this.userPoolId,
         mcpServers: Object.keys(mcpServers.getArns()),
+        gatewayId: gateway.gateway.gatewayId,
       }, null, 2),
       description: 'Deployment summary JSON',
     });
