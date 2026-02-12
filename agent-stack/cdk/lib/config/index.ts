@@ -60,7 +60,7 @@ export const Config = {
 
   // Gateway Configuration
   gateway: {
-    name: 'acme_mcp_gateway',
+    name: 'acme-mcp-gateway',
     description: 'ACME Corp MCP Gateway for unified tool access',
     instructions: 'Use this gateway to access AWS documentation search and ACME telemetry data processing tools. Route all tool calls through this gateway.',
   },

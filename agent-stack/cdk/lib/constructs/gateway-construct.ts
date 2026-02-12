@@ -42,6 +42,9 @@ export class GatewayConstruct extends Construct {
     });
 
     for (const [name, arn] of Object.entries(props.mcpServerArns)) {
+      // Sanitize name: Gateway target names only allow alphanumeric and hyphens
+      const targetName = name.replace(/_/g, '-');
+
       const slashEncoded = Fn.join('%2F', Fn.split('/', arn));
       const fullyEncoded = Fn.join('%3A', Fn.split(':', slashEncoded));
 
@@ -51,8 +54,8 @@ export class GatewayConstruct extends Construct {
         '/invocations?qualifier=DEFAULT',
       ]);
 
-      this.gateway.addMcpServerTarget(`${name}Target`, {
-        gatewayTargetName: name,
+      this.gateway.addMcpServerTarget(`${targetName}Target`, {
+        gatewayTargetName: targetName,
         description: `MCP target for ${name}`,
         endpoint: endpointUrl,
         credentialProviderConfigurations: [
