@@ -10,6 +10,7 @@ import { CognitoConstruct } from './constructs/cognito-construct';
 import { SecretsConstruct } from './constructs/secrets-construct';
 import { MemoryConstruct } from './constructs/memory-construct';
 import { McpServerConstruct } from './constructs/mcp-server-construct';
+import { OAuthProviderConstruct } from './constructs/oauth-provider-construct';
 import { AgentRuntimeConstruct } from './constructs/agent-runtime-construct';
 import { GatewayConstruct } from './constructs/gateway-construct';
 import { FrontendConstruct } from './constructs/frontend-construct';
@@ -84,17 +85,31 @@ export class AcmeAgentCoreStack extends Stack {
     // 4. MCP Servers
     // ========================================
     const mcpServers = new McpServerConstruct(this, 'McpServers', {
+      userPool: auth.userPool,
+      mcpClient: auth.mcpClient,
       mcpCredentials: secrets.mcpCredentials,
       removalPolicy,
     });
 
     // ========================================
-    // 4b. MCP Gateway
+    // 4b. OAuth Provider (Token Vault)
+    // ========================================
+    const oauthProvider = new OAuthProviderConstruct(this, 'OAuthProvider', {
+      userPool: auth.userPool,
+      mcpClient: auth.mcpClient,
+      cognitoDomain: auth.cognitoDomain,
+      discoveryUrl: auth.discoveryUrl,
+    });
+
+    // ========================================
+    // 4c. MCP Gateway
     // ========================================
     const gateway = new GatewayConstruct(this, 'Gateway', {
       userPool: auth.userPool,
       mcpClient: auth.mcpClient,
       mcpServerArns: mcpServers.getArns(),
+      oauthProviderArn: oauthProvider.providerArn,
+      oauthSecretArn: oauthProvider.secretArn,
       removalPolicy,
     });
 

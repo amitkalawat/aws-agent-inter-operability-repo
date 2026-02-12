@@ -17,6 +17,10 @@ export interface GatewayConstructProps {
   readonly userPool: IUserPool;
   readonly mcpClient: IUserPoolClient;
   readonly mcpServerArns: Record<string, string>;
+  /** OAuth credential provider ARN from the Token Vault */
+  readonly oauthProviderArn: string;
+  /** Secrets Manager ARN for the OAuth credentials */
+  readonly oauthSecretArn: string;
   readonly removalPolicy?: RemovalPolicy;
 }
 
@@ -59,7 +63,11 @@ export class GatewayConstruct extends Construct {
         description: `MCP target for ${name}`,
         endpoint: endpointUrl,
         credentialProviderConfigurations: [
-          GatewayCredentialProvider.fromIamRole(),
+          GatewayCredentialProvider.fromOauthIdentityArn({
+            providerArn: props.oauthProviderArn,
+            secretArn: props.oauthSecretArn,
+            scopes: ['mcp/invoke'],
+          }),
         ],
       });
     }

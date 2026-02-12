@@ -31,7 +31,7 @@ All development happens on the `dev` branch. The `main` branch is protected and 
 │  │                              │  (Semantic Search)│                   │  │
 │  │                              └───────┬──────────┘                   │  │
 │  │                    ┌─────────────────┼─────────────────┐            │  │
-│  │                    │       MCP Servers (IAM auth)      │            │  │
+│  │                    │     MCP Servers (Cognito OAuth)    │            │  │
 │  │                    │  ┌─────────────┐  ┌──────────────┐│            │  │
 │  │                    │  │ AWS Docs    │  │ Data Process ││            │  │
 │  │                    │  │ MCP Server  │  │ MCP Server   │├────────┐   │  │
@@ -105,6 +105,7 @@ aws cognito-idp admin-set-user-password --user-pool-id $USER_POOL_ID \
 | `agent-stack/cdk/lib/config/index.ts` | Central configuration (region, naming, Cognito, model) |
 | `agent-stack/cdk/lib/constructs/secrets-construct.ts` | MCP credentials sync (Custom Resource) |
 | `agent-stack/cdk/lib/constructs/gateway-construct.ts` | MCP Gateway (unified tool access point) |
+| `agent-stack/cdk/lib/constructs/oauth-provider-construct.ts` | OAuth2 credential provider (Token Vault Custom Resource) |
 | `agent-stack/cdk/docker/agent/strands_claude.py` | Main agent logic with MCP client management |
 | `agent-stack/frontend/acme-chat/src/services/AuthService.ts` | Cognito auth (USER_PASSWORD_AUTH flow) |
 | `agent-stack/frontend/acme-chat/src/services/AgentCoreService.ts` | Agent invocation API client |
@@ -123,7 +124,7 @@ Located in `agent-stack/aws-mcp-server-agentcore/`:
 
 The agent accesses all MCP tools through a single AgentCore Gateway (`gateway-construct.ts`):
 - **Inbound auth**: Cognito JWT (same credentials as direct MCP access)
-- **Outbound auth**: Gateway IAM role invokes MCP server Runtimes (IAM auth)
+- **Outbound auth**: OAuth2 via Token Vault credential provider (Cognito client_credentials flow)
 - **Protocol**: MCP with semantic search for tool discovery
 - **Tool naming**: Gateway prefixes tools with target name: `{target-name}__{tool-name}`
 - Gateway URL passed to agent as `GATEWAY_MCP_URL` environment variable
@@ -271,3 +272,9 @@ aws athena start-query-execution --query-string "SELECT COUNT(*) FROM acme_telem
 | `Docker daemon is not running` | Docker not started | Start Docker Desktop |
 | `CDK bootstrap required` | First deploy | Run `cdk bootstrap aws://ACCOUNT/us-west-2` |
 | `HIVE_CURSOR_ERROR` | Schema mismatch | See data-stack README for table recreation |
+| `Domain already associated with another user pool` | Cognito domain prefix is globally unique across all AWS accounts | Append account ID to domain prefix: `${prefix}-${Stack.of(this).account}` |
+| `MCP server target only supports OAUTH credential provider type` | Gateway targets for MCP servers cannot use IAM auth | Create OAuth2 credential provider in Token Vault, use `GatewayCredentialProvider.fromOauthIdentityArn()` |
+| `secretsmanager:CreateSecret` unauthorized | `CreateOauth2CredentialProvider` API internally creates a Secrets Manager secret | Add `secretsmanager:CreateSecret/UpdateSecret/DeleteSecret/GetSecretValue/DescribeSecret/PutSecretValue` to Lambda role |
+| `bedrock-agentcore:CreateTokenVault` unauthorized | OAuth provider creation requires Token Vault to exist first | Add `bedrock-agentcore:CreateTokenVault` and `GetTokenVault` permissions |
+| `Vendor response doesn't contain ProviderArn attribute` | CDK Provider Custom Resources must return a dict, not call `cfnresponse.send()` | Return `{'Data': {'Key': 'value'}}` from Lambda handler |
+| Memory stuck in CREATING during rollback | AgentCore Memory in transitional state cannot be deleted | Manually delete memory: `aws bedrock-agentcore-control delete-memory --memory-id ID`, then delete stack with `--retain-resources` |

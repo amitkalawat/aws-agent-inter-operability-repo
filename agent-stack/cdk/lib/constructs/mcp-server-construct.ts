@@ -3,6 +3,7 @@ import { Construct } from 'constructs';
 import { CfnOutput, RemovalPolicy } from 'aws-cdk-lib';
 
 import { ISecret } from 'aws-cdk-lib/aws-secretsmanager';
+import { IUserPool, IUserPoolClient } from 'aws-cdk-lib/aws-cognito';
 import {
   Runtime,
   AgentRuntimeArtifact,
@@ -25,6 +26,8 @@ export interface McpServerConfig {
 }
 
 export interface McpServerConstructProps {
+  readonly userPool: IUserPool;
+  readonly mcpClient: IUserPoolClient;
   readonly mcpCredentials: ISecret;
   readonly removalPolicy?: RemovalPolicy;
 }
@@ -113,7 +116,7 @@ export class McpServerConstruct extends Construct {
     const runtime = new Runtime(this, `${config.name}Runtime`, {
       runtimeName: config.name,
       agentRuntimeArtifact: artifact,
-      authorizerConfiguration: RuntimeAuthorizerConfiguration.usingIAM(),
+      authorizerConfiguration: RuntimeAuthorizerConfiguration.usingCognito(props.userPool, [props.mcpClient]),
       networkConfiguration: RuntimeNetworkConfiguration.usingPublicNetwork(),
       protocolConfiguration: ProtocolType.MCP,
       environmentVariables: {
