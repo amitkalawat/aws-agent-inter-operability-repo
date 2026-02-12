@@ -25,14 +25,19 @@ All development happens on the `dev` branch. The `main` branch is protected and 
 │  │   CloudFront ──▶ Cognito ──▶ Bedrock AgentCore Runtime              │  │
 │  │   (React App)    (Auth)      (Claude Haiku 4.5 + Memory)            │  │
 │  │                                       │                             │  │
-│  │                    ┌──────────────────┼──────────────────┐          │  │
-│  │                    │       MCP Servers                   │          │  │
-│  │                    │  ┌─────────────┐  ┌──────────────┐  │          │  │
-│  │                    │  │ AWS Docs    │  │ Data Process │  │          │  │
-│  │                    │  │ MCP Server  │  │ MCP Server   │──┼──────┐   │  │
-│  │                    │  └─────────────┘  └──────────────┘  │      │   │  │
-│  │                    └─────────────────────────────────────┘      │   │  │
-│  └─────────────────────────────────────────────────────────────────┼───┘  │
+│  │                              ┌────────▼────────┐                    │  │
+│  │                              │  AgentCore       │                    │  │
+│  │                              │  MCP Gateway     │                    │  │
+│  │                              │  (Semantic Search)│                   │  │
+│  │                              └───────┬──────────┘                   │  │
+│  │                    ┌─────────────────┼─────────────────┐            │  │
+│  │                    │       MCP Servers (IAM auth)      │            │  │
+│  │                    │  ┌─────────────┐  ┌──────────────┐│            │  │
+│  │                    │  │ AWS Docs    │  │ Data Process ││            │  │
+│  │                    │  │ MCP Server  │  │ MCP Server   │├────────┐   │  │
+│  │                    │  └─────────────┘  └──────────────┘│        │   │  │
+│  │                    └───────────────────────────────────┘        │   │  │
+│  └────────────────────────────────────────────────────────────────┼───┘  │
 │                                                                    │      │
 │                                                          Athena Queries   │
 │                                                                    │      │
@@ -99,6 +104,7 @@ aws cognito-idp admin-set-user-password --user-pool-id $USER_POOL_ID \
 | `agent-stack/cdk/lib/acme-stack.ts` | Main CDK stack orchestrating all constructs |
 | `agent-stack/cdk/lib/config/index.ts` | Central configuration (region, naming, Cognito, model) |
 | `agent-stack/cdk/lib/constructs/secrets-construct.ts` | MCP credentials sync (Custom Resource) |
+| `agent-stack/cdk/lib/constructs/gateway-construct.ts` | MCP Gateway (unified tool access point) |
 | `agent-stack/cdk/docker/agent/strands_claude.py` | Main agent logic with MCP client management |
 | `agent-stack/frontend/acme-chat/src/services/AuthService.ts` | Cognito auth (USER_PASSWORD_AUTH flow) |
 | `agent-stack/frontend/acme-chat/src/services/AgentCoreService.ts` | Agent invocation API client |
@@ -113,6 +119,16 @@ Located in `agent-stack/aws-mcp-server-agentcore/`:
 - **aws-documentation-mcp-server**: Search AWS documentation
 - **aws-dataprocessing-mcp-server**: Athena SQL queries on ACME telemetry data
 
+## MCP Gateway
+
+The agent accesses all MCP tools through a single AgentCore Gateway (`gateway-construct.ts`):
+- **Inbound auth**: Cognito JWT (same credentials as direct MCP access)
+- **Outbound auth**: Gateway IAM role invokes MCP server Runtimes (IAM auth)
+- **Protocol**: MCP with semantic search for tool discovery
+- **Tool naming**: Gateway prefixes tools with target name: `{target-name}__{tool-name}`
+- Gateway URL passed to agent as `GATEWAY_MCP_URL` environment variable
+- Agent falls back to direct MCP connections if `GATEWAY_MCP_URL` is not set
+
 ## Important Implementation Details
 
 ### Authentication
@@ -121,7 +137,10 @@ Located in `agent-stack/aws-mcp-server-agentcore/`:
 - MCP credentials synced to Secrets Manager via CDK Custom Resource on every deploy
 - Agent caches secrets for 5 minutes (TTL in `secrets_manager.py`)
 
-### MCP Server Invocation
+### MCP Server Invocation (Legacy/Fallback)
+
+> Note: With the Gateway integration, direct MCP server invocation is a fallback path. The primary path is through the MCP Gateway.
+
 - **Accept Header**: Must include `application/json, text/event-stream` or get 406 error
 - **SSE Response**: MCP responses are Server-Sent Events format
 - **Session ID**: Capture `mcp-session-id` header from initialize response

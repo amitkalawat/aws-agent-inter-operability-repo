@@ -22,8 +22,14 @@ This repository demonstrates AWS Bedrock AgentCore with MCP (Model Context Proto
 │  │                                              │  └────────┬─────────┘  │     │    │
 │  │                                              └───────────┼────────────┘     │    │
 │  │                                                          │                  │    │
+│  │                                              ┌───────────▼────────────┐     │    │
+│  │                                              │    AgentCore           │     │    │
+│  │                                              │    MCP Gateway         │     │    │
+│  │                                              │    (Semantic Search)   │     │    │
+│  │                                              └───────────┬────────────┘     │    │
+│  │                                                          │                  │    │
 │  │                              ┌───────────────────────────┼───────────────┐  │    │
-│  │                              │         MCP Servers       │               │  │    │
+│  │                              │    MCP Servers (IAM auth) │               │  │    │
 │  │                              │  ┌──────────────┐  ┌──────▼─────────┐     │  │    │
 │  │                              │  │  AWS Docs    │  │ Data Processing│     │  │    │
 │  │                              │  │  MCP Server  │  │ MCP Server     │     │  │    │
@@ -76,6 +82,7 @@ Contains the AI agent infrastructure built with AWS Bedrock AgentCore:
 - **Backend**: Python Strands agent powered by Claude Haiku 4.5
 - **Memory**: AWS Bedrock AgentCore Memory for conversation persistence
 - **MCP Integration**: 2 MCP servers (AWS Docs, Data Processing)
+- **MCP Gateway**: AgentCore Gateway for unified tool access with semantic search
 - **Code Interpreter**: Python execution for data visualization
 
 ### Data Stack (`data-stack/`)
@@ -89,6 +96,7 @@ Contains the streaming data infrastructure and analytics:
 ## AWS Services Used
 
 - **AWS Bedrock AgentCore**: Agent runtime, memory, and MCP server hosting
+- **AWS Bedrock AgentCore Gateway**: Unified MCP tool access with semantic search
 - **Amazon Kinesis**: Data Stream and Firehose for streaming
 - **AWS Lambda**: Data generation and processing
 - **Amazon S3**: Data lake storage
