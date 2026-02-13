@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AWS Bedrock AgentCore demonstration with MCP (Model Context Protocol) integration. The project showcases an ACME Corp chatbot that can query AWS documentation and analyze streaming telemetry data via natural language.
+AWS Bedrock AgentCore demonstration with MCP (Model Context Protocol) integration. The project showcases an ACME Corp chatbot that can query AWS documentation, analyze streaming telemetry data, and query CRM data via natural language.
 
 **Region**: us-west-2 | **Model**: Claude Haiku 4.5 | **Docker Platform**: linux/arm64
 
@@ -31,15 +31,23 @@ All development happens on the `dev` branch. The `main` branch is protected and 
 │  │                              │  (Semantic Search)│                   │  │
 │  │                              └───────┬──────────┘                   │  │
 │  │                    ┌─────────────────┼─────────────────┐            │  │
-│  │                    │     MCP Servers (Cognito OAuth)    │            │  │
-│  │                    │  ┌─────────────┐  ┌──────────────┐│            │  │
-│  │                    │  │ AWS Docs    │  │ Data Process ││            │  │
-│  │                    │  │ MCP Server  │  │ MCP Server   │├────────┐   │  │
-│  │                    │  └─────────────┘  └──────────────┘│        │   │  │
-│  │                    └───────────────────────────────────┘        │   │  │
-│  └────────────────────────────────────────────────────────────────┼───┘  │
-│                                                                    │      │
-│                                                          Athena Queries   │
+│  │                    │        MCP Servers (Cognito OAuth)         │            │  │
+│  │                    │  ┌──────────┐ ┌───────────┐ ┌───────────┐│            │  │
+│  │                    │  │ AWS Docs │ │ Data Proc │ │ MySQL MCP ││            │  │
+│  │                    │  │ MCP      │ │ MCP       │ │ (CRM)     │├────────┐   │  │
+│  │                    │  └──────────┘ └─────┬─────┘ └─────┬─────┘│        │   │  │
+│  │                    └─────────────────────┼─────────────┼──────┘        │   │  │
+│  │                                          │             │               │   │  │
+│  │                                   Athena Queries   RDS Data API        │   │  │
+│  │                                          │             │               │   │  │
+│  │                                          │     ┌───────▼──────┐        │   │  │
+│  │                                          │     │ Aurora MySQL │        │   │  │
+│  │                                          │     │ Serverless v2│        │   │  │
+│  │                                          │     │ (default VPC)│        │   │  │
+│  │                                          │     └──────────────┘        │   │  │
+│  └──────────────────────────────────────────┼────────────────────────────┼───┘  │
+│                                              │                            │      │
+│                                    Athena Queries                         │      │
 │                                                                    │      │
 │  ┌─────────────────────────────────────────────────────────────────┼───┐  │
 │  │                    DATA STACK (data-stack/)                     │   │  │
@@ -111,6 +119,8 @@ aws cognito-idp admin-set-user-password --user-pool-id $USER_POOL_ID \
 | `agent-stack/frontend/acme-chat/src/services/AgentCoreService.ts` | Agent invocation API client |
 | `agent-stack/cdk/docker/agent/memory_manager.py` | AgentCore Memory integration (short-term, 7-day expiry) |
 | `agent-stack/cdk/docker/agent/secrets_manager.py` | Secrets Manager client with 5-min TTL cache |
+| `agent-stack/cdk/lib/constructs/aurora-construct.ts` | Aurora MySQL Serverless v2 + DB seeding Custom Resource |
+| `agent-stack/cdk/lambda/aurora-init/index.py` | Lambda that seeds acme_crm database via RDS Data API |
 | `agent-stack/frontend/acme-chat/src/config.ts` | Frontend config (reads REACT_APP_* env vars) |
 | `data-stack/consolidated-data-stack/lib/config.ts` | Data stack configuration |
 
@@ -119,6 +129,7 @@ aws cognito-idp admin-set-user-password --user-pool-id $USER_POOL_ID \
 Located in `agent-stack/aws-mcp-server-agentcore/`:
 - **aws-documentation-mcp-server**: Search AWS documentation
 - **aws-dataprocessing-mcp-server**: Athena SQL queries on ACME telemetry data
+- **aws-mysql-mcp-server**: MySQL queries on Aurora MySQL CRM data (via RDS Data API)
 
 ## MCP Gateway
 
@@ -191,6 +202,25 @@ aws logs tail /aws/lambda/acme-data-generator --region us-west-2 --since 10m
 | event_type | STRING | 'start', 'pause', 'resume', 'stop', 'complete' |
 | title_type | STRING | 'movie', 'series', 'documentary' |
 | device_type | STRING | 'mobile', 'web', 'tv', 'tablet' |
+
+## Aurora MySQL Schema
+
+**Database**: `acme_crm` (Aurora MySQL Serverless v2, accessed via RDS Data API)
+
+| Table | Description |
+|-------|-------------|
+| `support_tickets` | Customer support tickets (200 records) |
+| `subscriptions` | Customer subscription plans (300 records) |
+| `content_ratings` | Content ratings and reviews (500 records) |
+
+Key columns and enums:
+- `support_tickets.status`: open, in_progress, resolved, closed
+- `support_tickets.priority`: low, medium, high, critical
+- `support_tickets.category`: billing, technical, content, account
+- `subscriptions.plan`: free_with_ads, basic, standard, premium
+- `subscriptions.status`: active, cancelled, expired, paused
+- `content_ratings.rating`: 1-5 (integer)
+- `customer_id` links to `acme_telemetry.customers` for cross-database correlation
 
 ## Batch Data Generation
 
@@ -276,6 +306,14 @@ aws cognito-idp initiate-auth --client-id $CLIENT_ID --auth-flow USER_PASSWORD_A
 aws athena start-query-execution --query-string "SELECT COUNT(*) FROM acme_telemetry.streaming_events" \
   --work-group primary --result-configuration "OutputLocation=s3://acme-telemetry-data-${ACCOUNT}-us-west-2/athena-results/" \
   --region us-west-2
+
+# Test Aurora MySQL CRM data
+CLUSTER_ARN=$(aws cloudformation describe-stacks --stack-name AcmeAgentCoreStack \
+  --query 'Stacks[0].Outputs[?contains(OutputKey,`ClusterArn`)].OutputValue' --output text --region us-west-2)
+SECRET_ARN=$(aws cloudformation describe-stacks --stack-name AcmeAgentCoreStack \
+  --query 'Stacks[0].Outputs[?contains(OutputKey,`SecretArn`)].OutputValue' --output text --region us-west-2)
+aws rds-data execute-statement --resource-arn "$CLUSTER_ARN" --secret-arn "$SECRET_ARN" \
+  --database acme_crm --sql "SELECT COUNT(*) as cnt FROM support_tickets" --region us-west-2
 ```
 
 ## Common Deployment Errors
@@ -296,3 +334,6 @@ aws athena start-query-execution --query-string "SELECT COUNT(*) FROM acme_telem
 | `bedrock-agentcore:GetResourceOauth2Token` unauthorized | Gateway OAuth flow has two steps: `GetWorkloadAccessToken` then `GetResourceOauth2Token`. Both permissions required on `workload-identity-directory/*` and `token-vault/*` resources | Add both actions to Gateway role, plus `secretsmanager:GetSecretValue` for reading OAuth client secret |
 | Memory "not active" for data plane (CreateEvent/ListEvents) | Memory has `strategies: []` (empty). A strategy is required for full data plane operations | Add `MemoryStrategy.usingBuiltInSummarization()` to `memoryStrategies` in memory construct |
 | Athena query fails with "no output location" | Athena primary workgroup has no result location configured | Run `aws athena update-work-group --work-group primary --configuration-updates "ResultConfigurationUpdates={OutputLocation=s3://acme-telemetry-data-${ACCOUNT}-us-west-2/athena-results/}"` |
+| `AccessDenied: rds-data:ExecuteStatement` | MySQL MCP runtime role missing Data API permissions | Verify `additionalPolicies` in mcp-server-construct.ts includes `rds-data:*` actions targeting Aurora cluster ARN |
+| `AccessDenied: secretsmanager:GetSecretValue` on Aurora secret | MySQL MCP runtime can't read Aurora credentials | Verify `additionalPolicies` includes `secretsmanager:GetSecretValue` targeting Aurora secret ARN |
+| `BadRequestException: HttpEndpoint is not enabled` | RDS Data API not enabled on Aurora cluster | Verify `enableDataApi: true` in aurora-construct.ts |
