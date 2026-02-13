@@ -79,7 +79,7 @@ export class AuroraConstruct extends Construct {
       onEventHandler: initFn,
     });
 
-    new CustomResource(this, 'AuroraInit', {
+    const auroraInit = new CustomResource(this, 'AuroraInit', {
       serviceToken: initProvider.serviceToken,
       properties: {
         ClusterArn: this.cluster.clusterArn,
@@ -88,6 +88,11 @@ export class AuroraConstruct extends Construct {
         Version: '1', // Bump to re-run seeding
       },
     });
+
+    // Ensure seeding waits for the DB instance (writer) to be fully available,
+    // not just the cluster. Without this, the Lambda fires before the instance
+    // is ready and gets DatabaseNotFoundException.
+    auroraInit.node.addDependency(this.cluster);
 
     // Outputs
     new CfnOutput(this, 'ClusterArn', {
