@@ -124,7 +124,8 @@ Located in `agent-stack/aws-mcp-server-agentcore/`:
 
 The agent accesses all MCP tools through a single AgentCore Gateway (`gateway-construct.ts`):
 - **Inbound auth**: Cognito JWT (same credentials as direct MCP access)
-- **Outbound auth**: OAuth2 via Token Vault credential provider (Cognito client_credentials flow)
+- **Outbound auth**: OAuth2 via Token Vault credential provider (Cognito client_credentials flow). Gateway role needs `GetWorkloadAccessToken` + `GetResourceOauth2Token` + `secretsmanager:GetSecretValue`
+- **Important**: Gateway targets for MCP servers require `GatewayCredentialProvider.fromOauthIdentityArn()`, NOT `fromIamRole()`
 - **Protocol**: MCP with semantic search for tool discovery
 - **Tool naming**: Gateway prefixes tools with target name: `{target-name}__{tool-name}`
 - Gateway URL passed to agent as `GATEWAY_MCP_URL` environment variable
@@ -147,6 +148,10 @@ The agent accesses all MCP tools through a single AgentCore Gateway (`gateway-co
 - **Session ID**: Capture `mcp-session-id` header from initialize response
 - **Bearer Token**: OAuth client_credentials flow via Cognito domain, cached for 50 minutes
 
+### Memory
+- Memory requires at least one strategy (e.g. `MemoryStrategy.usingBuiltInSummarization()`) for data plane operations (CreateEvent/ListEvents). Empty `strategies: []` causes "Memory status is not active" errors
+- Available built-in strategies: `usingBuiltInSummarization()`, `usingBuiltInSemantic()`, `usingBuiltInUserPreference()`
+
 ### Frontend-Agent Communication
 - Session metadata embedded in prompt as `[META:{"sid":"...","uid":"..."}]` prefix
 - Agent parses and strips this prefix in `memory_manager.py:extract_session_info()`
@@ -160,8 +165,11 @@ The agent accesses all MCP tools through a single AgentCore Gateway (`gateway-co
 
 ## Logs
 ```bash
-# Agent runtime logs (replace runtime ID with actual)
-aws logs tail /aws/bedrock-agentcore/runtimes/acme_chatbot-* --region us-west-2 --since 10m
+# Agent runtime logs (log group has -DEFAULT suffix)
+aws logs tail /aws/bedrock-agentcore/runtimes/acme_chatbot-GMG3nr6fes-DEFAULT --region us-west-2 --since 10m --format short
+
+# Filter for real errors (exclude OTEL telemetry noise)
+aws logs tail /aws/bedrock-agentcore/runtimes/acme_chatbot-GMG3nr6fes-DEFAULT --region us-west-2 --since 10m --format short 2>&1 | grep -v 'otel-rt-logs' | grep -iE 'ERROR|WARN|Exception|Traceback|fail|denied'
 
 # Data generator Lambda
 aws logs tail /aws/lambda/acme-data-generator --region us-west-2 --since 10m
