@@ -4,7 +4,7 @@
 
 **Goal:** Route all agent-to-MCP-server traffic through a single Bedrock AgentCore Gateway, replacing direct MCP client connections.
 
-**Architecture:** Create an AgentCore Gateway with MCP protocol that sits between the main agent runtime and the two MCP servers (AWS Docs, Data Processing). The Gateway handles tool discovery (semantic search), authentication routing, and provides a unified MCP endpoint. MCP servers switch from Cognito auth to IAM auth so the Gateway's execution role can invoke them directly. The agent connects to one Gateway URL instead of managing multiple MCP clients.
+**Architecture:** Create an AgentCore Gateway with MCP protocol that sits between the main agent runtime and the two MCP servers (AWS Docs, Data Processing). The Gateway handles tool discovery (semantic search), authentication routing, and provides a unified MCP endpoint. MCP servers keep Cognito OAuth auth — the Gateway authenticates to them via an OAuth2 credential provider in the Token Vault (client_credentials flow). The agent connects to one Gateway URL instead of managing multiple MCP clients.
 
 **Tech Stack:** AWS CDK (`@aws-cdk/aws-bedrock-agentcore-alpha` v2.235.0), Gateway construct, Python Strands SDK, MCP `streamablehttp_client`
 
@@ -18,14 +18,14 @@ CURRENT:
   Agent Runtime ──(OAuth bearer)──▶ dataproc_mcp Runtime
 
 TARGET:
-  Agent Runtime ──(OAuth bearer)──▶ Gateway ──(IAM role)──▶ aws_docs_mcp Runtime
-                                            ──(IAM role)──▶ dataproc_mcp Runtime
+  Agent Runtime ──(OAuth bearer)──▶ Gateway ──(OAuth via Token Vault)──▶ aws_docs_mcp Runtime
+                                            ──(OAuth via Token Vault)──▶ dataproc_mcp Runtime
 ```
 
 Key changes:
 - **Inbound (Agent → Gateway):** Cognito JWT auth (reuse existing user pool + MCP client)
-- **Outbound (Gateway → MCP servers):** IAM role-based auth (Gateway's execution role)
-- **MCP servers:** Change from Cognito auth → IAM auth (only Gateway can reach them)
+- **Outbound (Gateway → MCP servers):** OAuth2 via Token Vault credential provider (Cognito client_credentials flow)
+- **MCP servers:** Keep Cognito OAuth auth (Gateway authenticates using Token Vault OAuth provider)
 - **Agent code:** Single MCPClient to Gateway URL (replaces per-server MCPManager)
 
 ---
@@ -64,61 +64,22 @@ git commit -m "feat: add gateway configuration to config"
 
 ---
 
-### Task 2: Switch MCP Servers from Cognito to IAM Auth
+### Task 2: Keep MCP Servers on Cognito OAuth Auth
 
 **Files:**
-- Modify: `agent-stack/cdk/lib/constructs/mcp-server-construct.ts`
+- No changes needed to: `agent-stack/cdk/lib/constructs/mcp-server-construct.ts`
 
-**Why:** The Gateway's execution role will invoke MCP servers using IAM credentials (SigV4). MCP servers must accept IAM auth instead of Cognito OAuth. This also simplifies the MCP server construct by removing the Cognito dependency.
+**Why:** The Gateway authenticates to MCP servers using an OAuth2 credential provider stored in the Token Vault. MCP servers keep their existing Cognito OAuth auth. The Gateway's Token Vault provider performs the client_credentials flow to obtain bearer tokens for outbound calls.
 
-**Step 1: Update the interface to remove Cognito props**
+**Note:** The original plan proposed switching MCP servers to IAM auth, but AWS AgentCore Gateway targets for MCP servers require OAuth credential providers (`GatewayCredentialProvider.fromOauthIdentityArn()`), not IAM. This was discovered during implementation.
 
-Replace the `McpServerConstructProps` interface (lines 19-24):
+**Step 1: No MCP server auth changes needed**
 
-```typescript
-export interface McpServerConstructProps {
-  readonly mcpCredentials: ISecret;
-  readonly removalPolicy?: RemovalPolicy;
-}
-```
+MCP servers remain on Cognito OAuth. The Gateway handles outbound auth via the Token Vault OAuth provider.
 
-Remove these imports that are no longer needed: `IUserPool`, `IUserPoolClient` from `aws-cdk-lib/aws-cognito`.
+**Step 2: Commit**
 
-**Step 2: Change auth from Cognito to IAM**
-
-In the `createMcpServer` method, replace the `authorizerConfiguration` line:
-
-```typescript
-// BEFORE:
-authorizerConfiguration: RuntimeAuthorizerConfiguration.usingCognito(
-  props.userPool,
-  [props.mcpClient]
-),
-
-// AFTER:
-authorizerConfiguration: RuntimeAuthorizerConfiguration.usingIAM(),
-```
-
-**Step 3: Remove the secret grant (MCP servers no longer need Cognito credentials)**
-
-Remove or comment out the line:
-```typescript
-props.mcpCredentials.grantRead(runtime);
-```
-
-Actually, keep the `mcpCredentials` prop and grant for now — the MCP server Docker containers may still reference secrets internally. We can clean this up later.
-
-**Step 4: Verify TypeScript compiles**
-
-Run: `cd agent-stack/cdk && npx tsc --noEmit`
-Expected: Errors in `acme-stack.ts` because `McpServerConstructProps` no longer requires `userPool`/`mcpClient`. We'll fix that in Task 4.
-
-**Step 5: Commit**
-
-```bash
-git add agent-stack/cdk/lib/constructs/mcp-server-construct.ts
-git commit -m "feat: switch MCP servers from Cognito to IAM auth for gateway routing"
-```
+No commit needed — MCP server construct unchanged.
 
 ---
 
@@ -152,6 +113,10 @@ export interface GatewayConstructProps {
   readonly mcpClient: IUserPoolClient;
   /** Map of MCP server names to their Runtime ARNs */
   readonly mcpServerArns: Record<string, string>;
+  /** OAuth credential provider ARN from the Token Vault */
+  readonly oauthProviderArn: string;
+  /** Secrets Manager ARN for the OAuth credentials */
+  readonly oauthSecretArn: string;
   readonly removalPolicy?: RemovalPolicy;
 }
 
@@ -195,7 +160,11 @@ export class GatewayConstruct extends Construct {
         description: `MCP target for ${name}`,
         endpoint: endpointUrl,
         credentialProviderConfigurations: [
-          GatewayCredentialProvider.fromIamRole(),
+          GatewayCredentialProvider.fromOauthIdentityArn({
+            providerArn: props.oauthProviderArn,
+            secretArn: props.oauthSecretArn,
+            scopes: ['mcp/invoke'],
+          }),
         ],
       });
     }
@@ -307,6 +276,8 @@ Insert after the MCP servers section (~line 92), before the Agent section:
       userPool: auth.userPool,
       mcpClient: auth.mcpClient,
       mcpServerArns: mcpServers.getArns(),
+      oauthProviderArn: oauthProvider.providerArn,
+      oauthSecretArn: secrets.mcpCredentials.secretArn,
       removalPolicy,
     });
 ```
@@ -596,7 +567,7 @@ Replace the architecture section with:
 │  │                              │  (Semantic Search)│                   │  │
 │  │                              └───────┬──────────┘                   │  │
 │  │                    ┌─────────────────┼─────────────────┐            │  │
-│  │                    │       MCP Servers (IAM auth)      │            │  │
+│  │                    │     MCP Servers (Cognito OAuth)    │            │  │
 │  │                    │  ┌─────────────┐  ┌──────────────┐│            │  │
 │  │                    │  │ AWS Docs    │  │ Data Process ││            │  │
 │  │                    │  │ MCP Server  │  │ MCP Server   │├────────┐   │  │
@@ -624,7 +595,7 @@ After the "MCP Servers" section, add:
 
 The agent accesses all MCP tools through a single AgentCore Gateway (`gateway-construct.ts`):
 - **Inbound auth**: Cognito JWT (same credentials as direct MCP access)
-- **Outbound auth**: Gateway IAM role → MCP server Runtimes (IAM auth)
+- **Outbound auth**: OAuth2 via Token Vault credential provider (Cognito client_credentials flow)
 - **Protocol**: MCP with semantic search (tool discovery)
 - **Tool naming**: Gateway prefixes tools with target name: `{target-name}__{tool-name}`
 - Gateway URL passed to agent as `GATEWAY_MCP_URL` environment variable
@@ -702,7 +673,7 @@ cdk deploy AcmeAgentCoreStack --require-approval never
 ```
 
 The deploy will:
-1. Update MCP server Runtimes to IAM auth
+1. MCP servers keep Cognito OAuth auth (Gateway uses Token Vault OAuth provider)
 2. Create the new Gateway resource
 3. Add MCP server targets to Gateway
 4. Update agent runtime with `GATEWAY_MCP_URL` env var
@@ -718,7 +689,7 @@ If the Gateway doesn't work:
 
 ## Risk Notes
 
-- **MCP server IAM auth change**: Existing Cognito tokens to MCP servers will stop working. The agent must go through the Gateway. This is intentional.
+- **MCP server OAuth auth**: MCP servers remain on Cognito OAuth. The Gateway authenticates via Token Vault OAuth provider (client_credentials flow). The agent goes through the Gateway for all tool calls.
 - **Gateway URL availability**: `gateway.gatewayUrl` is a CloudFormation attribute (`Fn::GetAtt`). It should resolve at deploy time. If it's undefined at synth time, use `gateway.gatewayArn` to construct the URL.
 - **Tool name prefixing**: The Gateway prefixes tool names with `{target-name}__`. MCP server code should handle this. Test that tool invocations work correctly through the Gateway.
 - **CDK alpha package**: `@aws-cdk/aws-bedrock-agentcore-alpha` is experimental. API may change between versions.
