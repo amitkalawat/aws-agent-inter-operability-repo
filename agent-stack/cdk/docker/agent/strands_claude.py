@@ -387,10 +387,7 @@ Key guidelines:
 - Include source URLs when referencing AWS documentation
 
 TOOL DISCOVERY:
-Not all tools are listed by default. The gateway uses semantic search and some tools (like MySQL/CRM tools) must be discovered dynamically.
-- ALWAYS use the x_amz_bedrock_agentcore_search tool to find additional tools when your current tools don't cover what's needed
-- For CRM/MySQL queries: search with query "mysql database query" to discover mysql-mcp___run_query and mysql-mcp___get_table_schema
-- For any unfamiliar request: search with relevant keywords to discover available tools
+You have access to all tools from the MCP Gateway. If you can't find a tool you need, use the x_amz_bedrock_agentcore_search tool to search for additional tools by keyword.
 
 ACME TELEMETRY DATA:
 The acme_telemetry Glue database contains ACME Corp's video streaming platform data. Use the data processing MCP tools to query this data via Athena SQL.
@@ -440,8 +437,7 @@ Tables:
    Key columns: rating_id, customer_id, title_id, rating (1-5), review_text, created_at
 
 MySQL query guidelines:
-- IMPORTANT: MySQL tools are NOT in the default tool list. You MUST first call x_amz_bedrock_agentcore_search with query "mysql database query" to discover them
-- The tools are: mysql-mcp___run_query (param: sql) and mysql-mcp___get_table_schema (params: table_name, database_name)
+- Use the mysql-mcp___run_query tool (param: sql) and mysql-mcp___get_table_schema tool (params: table_name, database_name)
 - These tables complement the Athena telemetry data - customer_id and title_id can be used to correlate
 - Use standard MySQL syntax (not Athena/Presto syntax)
 - Default to read-only SELECT queries
@@ -552,12 +548,19 @@ def strands_agent_bedrock(payload):
 
             def run_with_clients(clients, idx=0):
                 if idx >= len(clients):
-                    # All clients entered, now collect tools and run
+                    # All clients entered, now collect tools with pagination and run
                     for name, client in mcp_clients:
                         try:
-                            tools = client.list_tools_sync()
-                            all_tools.extend(tools)
-                            print(f"Added {len(tools)} tools from {name}")
+                            pagination_token = None
+                            tool_count = 0
+                            while True:
+                                tools = client.list_tools_sync(pagination_token=pagination_token)
+                                all_tools.extend(tools)
+                                tool_count += len(tools)
+                                pagination_token = tools.pagination_token
+                                if pagination_token is None:
+                                    break
+                            print(f"Added {tool_count} tools from {name}")
                         except Exception as e:
                             print(f"Could not get tools from {name}: {e}")
 
@@ -606,8 +609,13 @@ async def strands_agent_bedrock_streaming(payload):
                 if idx >= len(clients):
                     for name, client in mcp_clients:
                         try:
-                            tools = client.list_tools_sync()
-                            all_tools.extend(tools)
+                            pagination_token = None
+                            while True:
+                                tools = client.list_tools_sync(pagination_token=pagination_token)
+                                all_tools.extend(tools)
+                                pagination_token = tools.pagination_token
+                                if pagination_token is None:
+                                    break
                         except Exception:
                             pass
 
