@@ -22,21 +22,26 @@ This CDK stack deploys the complete ACME Corp chatbot infrastructure on AWS, inc
 │  │  └─────┬─────┘  │    │  │  (acme_chatbot)            │  │   │
 │  │        │        │    │  │  - Strands + Haiku 4.5     │  │   │
 │  │  ┌─────▼─────┐  │    │  │  - Memory integration      │  │   │
-│  │  │CloudFront │  │    │  └────────────────────────────┘  │   │
-│  │  └───────────┘  │    │                                   │   │
-│  └─────────────────┘    │  ┌────────────────────────────┐  │   │
-│                         │  │  MCP Servers (Runtimes)    │   │   │
-│  ┌─────────────────┐    │  │  - AWS Documentation       │   │   │
-│  │   Auth Layer    │    │  │  - DataProcessing          │   │   │
-│  │  ┌───────────┐  │    │  │  - Rekognition             │   │   │
-│  │  │ Cognito   │  │    │  │  - Nova Canvas             │   │   │
-│  │  │ User Pool │  │    │  └────────────────────────────┘  │   │
-│  │  └───────────┘  │    │                                   │   │
-│  └─────────────────┘    │  ┌────────────────────────────┐  │   │
-│                         │  │  AgentCore Memory          │   │   │
+│  │  │CloudFront │  │    │  └────────────┬───────────────┘  │   │
+│  │  └───────────┘  │    │               │                   │   │
+│  └─────────────────┘    │  ┌────────────▼───────────────┐  │   │
+│                         │  │  MCP Gateway               │   │   │
+│  ┌─────────────────┐    │  │  (Semantic Search)          │   │   │
+│  │   Auth Layer    │    │  │  OAuth via Token Vault      │   │   │
+│  │  ┌───────────┐  │    │  └────────────┬───────────────┘  │   │
+│  │  │ Cognito   │  │    │               │                   │   │
+│  │  │ User Pool │  │    │  ┌────────────▼───────────────┐  │   │
+│  │  └───────────┘  │    │  │  MCP Servers (Runtimes)    │   │   │
+│  └─────────────────┘    │  │  - AWS Documentation       │   │   │
+│                         │  │  - DataProcessing          │   │   │
 │  ┌─────────────────┐    │  └────────────────────────────┘  │   │
-│  │ Secrets Manager │    └──────────────────────────────────┘   │
-│  │ (MCP creds)     │                                            │
+│  │ Secrets Manager │    │                                   │   │
+│  │ (MCP creds)     │    │  ┌────────────────────────────┐  │   │
+│  └─────────────────┘    │  │  AgentCore Memory          │   │   │
+│                         │  │  (Summarization strategy)   │   │   │
+│  ┌─────────────────┐    │  └────────────────────────────┘  │   │
+│  │ Token Vault     │    └──────────────────────────────────┘   │
+│  │ (OAuth Provider)│                                            │
 │  └─────────────────┘                                            │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -51,15 +56,19 @@ This CDK stack deploys the complete ACME Corp chatbot infrastructure on AWS, inc
 
 ### Backend Agent
 - Strands agent with Claude Haiku 4.5 model
-- AgentCore Memory for conversation persistence
+- AgentCore Memory for conversation persistence (with summarization strategy)
 - Code interpreter for data visualization
-- Multiple MCP client integrations
+- Single MCP Gateway client (replaces direct per-server connections)
+
+### MCP Gateway
+- Unified tool access point with semantic search for tool discovery
+- Inbound auth: Cognito JWT
+- Outbound auth: OAuth2 via Token Vault credential provider (client_credentials flow)
+- Gateway role requires: `GetWorkloadAccessToken`, `GetResourceOauth2Token`, `secretsmanager:GetSecretValue`
 
 ### MCP Servers
 1. **AWS Documentation** - Search AWS docs, best practices, configuration guides
 2. **DataProcessing** - Athena, Glue, EMR data processing
-3. **Rekognition** - Image analysis and recognition
-4. **Nova Canvas** - Image generation
 
 ### Frontend
 - React TypeScript application
@@ -95,6 +104,9 @@ After deployment, the following outputs are available:
 | `CognitoAppClientId` | Frontend app client ID |
 | `DiscoveryUrl` | OIDC discovery URL for JWT validation |
 | `MemoryId` | AgentCore Memory resource ID |
+| `GatewayId` | MCP Gateway ID |
+| `GatewayArn` | MCP Gateway ARN |
+| `OAuthProviderArn` | Token Vault OAuth provider ARN |
 
 ## Project Structure
 
@@ -108,8 +120,10 @@ cdk/
 │   │   ├── cognito-construct.ts  # Cognito User Pool
 │   │   ├── frontend-construct.ts # S3 + CloudFront
 │   │   ├── agent-runtime-construct.ts  # Main agent
+│   │   ├── gateway-construct.ts  # MCP Gateway
 │   │   ├── mcp-server-construct.ts     # MCP servers
 │   │   ├── memory-construct.ts   # AgentCore Memory
+│   │   ├── oauth-provider-construct.ts # Token Vault OAuth provider
 │   │   └── secrets-construct.ts  # Secrets Manager
 │   └── config/
 │       └── index.ts              # Configuration constants
@@ -117,9 +131,7 @@ cdk/
 │   ├── agent/                    # Main agent Dockerfile
 │   └── mcp-servers/              # MCP server Dockerfiles
 │       ├── aws-docs/
-│       ├── dataproc/
-│       ├── rekognition/
-│       └── nova-canvas/
+│       └── dataproc/
 ├── package.json
 ├── tsconfig.json
 └── cdk.json
@@ -147,11 +159,15 @@ cdk list
 ## Viewing Logs
 
 ```bash
-# Agent runtime logs
-aws logs tail /aws/bedrock-agentcore/runtimes/acme_chatbot-* --region us-west-2 --follow
+# Agent runtime logs (log group has -DEFAULT suffix)
+aws logs tail /aws/bedrock-agentcore/runtimes/acme_chatbot-GMG3nr6fes-DEFAULT --region us-west-2 --since 10m --format short
+
+# Filter for real errors (exclude OTEL noise)
+aws logs tail /aws/bedrock-agentcore/runtimes/acme_chatbot-GMG3nr6fes-DEFAULT --region us-west-2 --since 10m --format short 2>&1 | grep -v 'otel-rt-logs' | grep -iE 'ERROR|WARN|Exception|fail|denied'
 
 # MCP server logs
-aws logs tail /aws/bedrock-agentcore/runtimes/aws_docs_mcp-* --region us-west-2 --follow
+aws logs tail /aws/bedrock-agentcore/runtimes/dataproc_mcp-86MK1VGnew-DEFAULT --region us-west-2 --since 10m --format short
+aws logs tail /aws/bedrock-agentcore/runtimes/aws_docs_mcp-KBewiR60Fg-DEFAULT --region us-west-2 --since 10m --format short
 ```
 
 ## Troubleshooting
