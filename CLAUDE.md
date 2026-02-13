@@ -62,6 +62,9 @@ All development happens on the `dev` branch. The `main` branch is protected and 
 
 ### Agent Stack
 ```bash
+# Run preflight checks first
+./preflight.sh
+
 cd agent-stack/cdk
 npm install
 
@@ -203,7 +206,7 @@ aws logs tail /aws/lambda/acme-data-generator --region us-west-2 --since 10m
 
 | Table | Description |
 |-------|-------------|
-| `streaming_events` | Telemetry data (partitioned by year/month/day/hour) |
+| `streaming_events` | Telemetry data (partitioned by year/month/day/hour). **Note:** First query after deploy is slow (~3.5 min) because partition projection scans ~62K virtual partitions (year range 2024-2030). Subsequent queries are fast. |
 | `customers` | Customer profiles (1000 records) |
 | `titles` | Video catalog (500 records) |
 | `campaigns` | Ad campaigns (50 records) |
@@ -267,14 +270,18 @@ aws athena update-work-group --work-group primary \
 ## Stack Recreate Checklist
 
 When deleting and recreating the agent stack:
-1. Build frontend first: `cd agent-stack/frontend/acme-chat && npm install && npm run build`
-2. `cd ../../cdk && cdk deploy AcmeAgentCoreStack` - deploys infrastructure + syncs MCP secrets
-3. Create test user (Cognito User Pool is new)
-4. `./scripts/deploy-frontend.sh` - regenerates .env from CloudFormation outputs
-5. Configure Athena workgroup output location and generate batch data (see Batch Data Generation section)
+1. Run preflight checks: `./preflight.sh`
+2. Build frontend first: `cd agent-stack/frontend/acme-chat && npm install && npm run build`
+3. `cd ../../cdk && cdk deploy AcmeAgentCoreStack` - deploys infrastructure + syncs MCP secrets
+4. Create test user (Cognito User Pool is new)
+5. `./scripts/deploy-frontend.sh` - regenerates .env from CloudFormation outputs
+6. Configure Athena workgroup output location and generate batch data (see Batch Data Generation section)
 
 ### Full Deploy (Both Stacks)
 ```bash
+# Preflight checks
+./preflight.sh
+
 # Data stack first (agent queries Athena data)
 cd data-stack/consolidated-data-stack && npm install && npm run build && cdk deploy --all
 
@@ -330,6 +337,7 @@ aws rds-data execute-statement --resource-arn "$CLUSTER_ARN" --secret-arn "$SECR
 | `Cannot find asset at .../build` | Frontend not built | Run `npm run build` in frontend/acme-chat first |
 | `Docker daemon is not running` | Docker not started | Start Docker Desktop |
 | `CDK bootstrap required` | First deploy | Run `cdk bootstrap aws://ACCOUNT/us-west-2` |
+| CDK deploy fails after ECR repo deleted out-of-band | `cdk-hnb659fds-container-assets-*` ECR repo was deleted but bootstrap thinks it exists | Run `./preflight.sh` (auto-fixes) or manually: `aws ecr create-repository --repository-name cdk-hnb659fds-container-assets-ACCOUNT-REGION` |
 | `HIVE_CURSOR_ERROR` | Schema mismatch | See data-stack README for table recreation |
 | `Domain already associated with another user pool` | Cognito domain prefix is globally unique across all AWS accounts | Append account ID to domain prefix: `${prefix}-${Stack.of(this).account}` |
 | `MCP server target only supports OAUTH credential provider type` | Gateway targets for MCP servers cannot use IAM auth | Create OAuth2 credential provider in Token Vault, use `GatewayCredentialProvider.fromOauthIdentityArn()` |
