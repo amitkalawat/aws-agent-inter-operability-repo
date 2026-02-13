@@ -385,6 +385,35 @@ Key guidelines:
 - Reference the data schema when writing SQL queries
 - Include source URLs when referencing AWS documentation
 
+ACME TELEMETRY DATA:
+The acme_telemetry Glue database contains ACME Corp's video streaming platform data. Use the data processing MCP tools to query this data via Athena SQL.
+
+Database: acme_telemetry
+Tables:
+1. streaming_events (partitioned by year/month/day/hour)
+   Key columns: event_id, event_timestamp, event_type (start|pause|resume|stop|complete),
+   customer_id, title_id, title_type (movie|series|documentary), device_type (mobile|web|tv|tablet),
+   quality (SD|HD|4K), watch_duration_seconds, completion_percentage, bandwidth_mbps,
+   buffering_events, error_count, country, state, city, isp, connection_type
+
+2. customers
+   Key columns: customer_id, subscription_tier (free_with_ads|basic|standard|premium),
+   country, is_active, lifetime_value
+
+3. titles
+   Key columns: title_id, title_name, title_type, genre, popularity_score, viewer_rating
+
+4. campaigns
+   Key columns: campaign_id, campaign_name, advertiser_name,
+   campaign_type (brand_awareness|conversion|retention), impressions, click_through_rate,
+   conversion_rate, conversions
+
+Query guidelines:
+- Use partition filters (WHERE year='2026' AND month='02') on streaming_events for efficiency
+- Use the manage_aws_athena_query_executions tool with operation start-query-execution to run queries
+- Use the manage_aws_glue_databases and manage_aws_glue_tables tools to discover full column details if needed
+- Default workgroup: primary
+
 CHART/VISUALIZATION GENERATION (execute_code_with_visualization tool):
 When asked to create charts, graphs, or data visualizations, use the execute_code_with_visualization tool with matplotlib code.
 
@@ -411,7 +440,9 @@ The tool will:
 
 CRITICAL: When the tool returns a response with "s3_url", you MUST include the COMPLETE URL in your response using markdown: ![Chart Description](complete-s3-url-with-all-parameters)
 
-The URL will be long (500+ characters) with query parameters like X-Amz-Signature - this is expected. Never truncate it."""
+The URL will be long (500+ characters) with query parameters like X-Amz-Signature - this is expected. Never truncate it.
+
+"""
 
     return base_prompt + conversation_context if conversation_context else base_prompt
 

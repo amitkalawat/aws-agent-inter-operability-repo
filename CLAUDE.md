@@ -209,9 +209,14 @@ python data_generation/main.py --customers 1000 --titles 500 --telemetry 100000 
 # Upload to S3 (partition format must match Glue: year=/month=/day=/hour=)
 aws s3 sync output/ s3://acme-telemetry-data-${ACCOUNT}-us-west-2/ --exclude "metadata.json"
 
+# Configure Athena workgroup with query result location (required before any queries work)
+aws athena update-work-group --work-group primary \
+  --configuration-updates "ResultConfigurationUpdates={OutputLocation=s3://acme-telemetry-data-${ACCOUNT}-us-west-2/athena-results/}" \
+  --region us-west-2
+
 # Repair Glue table to discover partitions
 aws athena start-query-execution --query-string "MSCK REPAIR TABLE acme_telemetry.streaming_events" \
-  --work-group primary --result-configuration "OutputLocation=s3://acme-telemetry-data-${ACCOUNT}-us-west-2/athena-results/" --region us-west-2
+  --work-group primary --region us-west-2
 ```
 
 **Gotchas:**
@@ -229,6 +234,7 @@ When deleting and recreating the agent stack:
 2. `cd ../../cdk && cdk deploy AcmeAgentCoreStack` - deploys infrastructure + syncs MCP secrets
 3. Create test user (Cognito User Pool is new)
 4. `./scripts/deploy-frontend.sh` - regenerates .env from CloudFormation outputs
+5. Configure Athena workgroup output location and generate batch data (see Batch Data Generation section)
 
 ### Full Deploy (Both Stacks)
 ```bash
@@ -289,3 +295,4 @@ aws athena start-query-execution --query-string "SELECT COUNT(*) FROM acme_telem
 | `bedrock-agentcore:GetWorkloadAccessToken` unauthorized | Gateway service role needs this permission to fetch OAuth tokens for outbound MCP server calls | Add `bedrock-agentcore:GetWorkloadAccessToken` on `workload-identity-directory/*` to Gateway role |
 | `bedrock-agentcore:GetResourceOauth2Token` unauthorized | Gateway OAuth flow has two steps: `GetWorkloadAccessToken` then `GetResourceOauth2Token`. Both permissions required on `workload-identity-directory/*` and `token-vault/*` resources | Add both actions to Gateway role, plus `secretsmanager:GetSecretValue` for reading OAuth client secret |
 | Memory "not active" for data plane (CreateEvent/ListEvents) | Memory has `strategies: []` (empty). A strategy is required for full data plane operations | Add `MemoryStrategy.usingBuiltInSummarization()` to `memoryStrategies` in memory construct |
+| Athena query fails with "no output location" | Athena primary workgroup has no result location configured | Run `aws athena update-work-group --work-group primary --configuration-updates "ResultConfigurationUpdates={OutputLocation=s3://acme-telemetry-data-${ACCOUNT}-us-west-2/athena-results/}"` |
