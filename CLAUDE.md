@@ -164,6 +164,11 @@ The agent accesses all MCP tools through a single AgentCore Gateway (`gateway-co
 - Memory requires at least one strategy (e.g. `MemoryStrategy.usingBuiltInSummarization()`) for data plane operations (CreateEvent/ListEvents). Empty `strategies: []` causes "Memory status is not active" errors
 - Available built-in strategies: `usingBuiltInSummarization()`, `usingBuiltInSemantic()`, `usingBuiltInUserPreference()`
 
+### Debugging MCP Tools
+- **Direct MCP server test** (bypasses gateway): `curl -X POST` with JSON-RPC `tools/list` to runtime endpoint — confirms server returns tools independently of gateway indexing
+- **Gateway pagination check**: Send `tools/list` to gateway URL, check for `nextCursor` in response — tools beyond page 1 (30 per page) require pagination
+- **`awslabs.mysql-mcp-server`**: No EULA needed. Tools (`run_query`, `get_table_schema`) registered unconditionally via `@mcp.tool()` decorators at module import
+
 ### Frontend-Agent Communication
 - Session metadata embedded in prompt as `[META:{"sid":"...","uid":"..."}]` prefix
 - Agent parses and strips this prefix in `memory_manager.py:extract_session_info()`
@@ -174,6 +179,8 @@ The agent accesses all MCP tools through a single AgentCore Gateway (`gateway-co
 - **Kinesis**: On-Demand mode (auto-scales), 24hr retention
 - **Firehose**: Delivers to S3 with Hive partitioning, 64MB buffer minimum (required for Parquet conversion)
 - **Generator Lambda**: EventBridge scheduled (5 min), 1000 events per batch
+- **Partition projection**: Enabled on `streaming_events` table — Athena auto-discovers partitions without `MSCK REPAIR TABLE` or Glue crawlers
+- **Firehose stream name**: `acme-data-kinesis-to-s3` (writes to `s3://{bucket}/telemetry/year=.../month=.../day=.../hour=.../`)
 
 ## Logs
 ```bash
@@ -247,10 +254,6 @@ aws s3 sync output/ s3://acme-telemetry-data-${ACCOUNT}-us-west-2/ --exclude "me
 aws athena update-work-group --work-group primary \
   --configuration-updates "ResultConfigurationUpdates={OutputLocation=s3://acme-telemetry-data-${ACCOUNT}-us-west-2/athena-results/}" \
   --region us-west-2
-
-# Repair Glue table to discover partitions
-aws athena start-query-execution --query-string "MSCK REPAIR TABLE acme_telemetry.streaming_events" \
-  --work-group primary --region us-west-2
 ```
 
 **Gotchas:**
@@ -343,3 +346,4 @@ aws rds-data execute-statement --resource-arn "$CLUSTER_ARN" --secret-arn "$SECR
 | `BadRequestException: HttpEndpoint is not enabled` | RDS Data API not enabled on Aurora cluster | Verify `enableDataApi: true` in aurora-construct.ts |
 | Agent doesn't see MySQL/new MCP tools | Gateway `tools/list` paginates at 30. `list_tools_sync()` only fetches page 1 | Add pagination loop with `pagination_token` in `strands_claude.py`, or pass MCPClient directly to Agent constructor |
 | Aurora DB seeding `DatabaseNotFoundException` | Custom Resource Lambda fires before Aurora writer instance is ready | Add `auroraInit.node.addDependency(this.cluster)` in aurora-construct.ts |
+| Athena returns 0 rows for recent Firehose data | New S3 partitions not discovered by Glue | Enable partition projection on Glue table (see `data-lake-stack.ts`) or run `MSCK REPAIR TABLE` |
