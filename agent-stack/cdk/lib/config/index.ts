@@ -56,6 +56,10 @@ export const Config = {
       name: 'dataproc_mcp',
       dockerPath: '../aws-mcp-server-agentcore/aws-dataprocessing-mcp-server',
     },
+    mysql: {
+      name: 'mysql_mcp',
+      dockerPath: '../aws-mcp-server-agentcore/aws-mysql-mcp-server',
+    },
   },
 
   // Gateway Configuration

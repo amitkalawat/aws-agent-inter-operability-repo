@@ -29,6 +29,9 @@ export interface McpServerConstructProps {
   readonly userPool: IUserPool;
   readonly mcpClient: IUserPoolClient;
   readonly mcpCredentials: ISecret;
+  readonly auroraClusterArn?: string;
+  readonly auroraSecretArn?: string;
+  readonly auroraDatabaseName?: string;
   readonly removalPolicy?: RemovalPolicy;
 }
 
@@ -91,6 +94,36 @@ export class McpServerConstruct extends Construct {
           }),
         ],
       },
+      // MySQL MCP server - conditionally included when Aurora is configured
+      ...(props.auroraClusterArn ? [{
+        name: Config.mcpServers.mysql.name,
+        dockerPath: Config.mcpServers.mysql.dockerPath,
+        description: 'MySQL MCP server for Aurora MySQL (CRM data)',
+        environmentVariables: {
+          MYSQL_RESOURCE_ARN: props.auroraClusterArn,
+          MYSQL_SECRET_ARN: props.auroraSecretArn!,
+          MYSQL_DATABASE: props.auroraDatabaseName ?? 'acme_crm',
+          MYSQL_READONLY: 'true',
+        },
+        additionalPolicies: [
+          new PolicyStatement({
+            effect: Effect.ALLOW,
+            actions: [
+              'rds-data:ExecuteStatement',
+              'rds-data:BatchExecuteStatement',
+              'rds-data:BeginTransaction',
+              'rds-data:CommitTransaction',
+              'rds-data:RollbackTransaction',
+            ],
+            resources: [props.auroraClusterArn],
+          }),
+          new PolicyStatement({
+            effect: Effect.ALLOW,
+            actions: ['secretsmanager:GetSecretValue'],
+            resources: [props.auroraSecretArn!],
+          }),
+        ],
+      }] : []),
     ];
 
     // Create each MCP server runtime
