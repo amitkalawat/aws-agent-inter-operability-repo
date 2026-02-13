@@ -26,23 +26,27 @@ This CDK stack deploys the complete ACME Corp chatbot infrastructure on AWS, inc
 │  │  └───────────┘  │    │               │                   │   │
 │  └─────────────────┘    │  ┌────────────▼───────────────┐  │   │
 │                         │  │  MCP Gateway               │   │   │
-│  ┌─────────────────┐    │  │  (Semantic Search)          │   │   │
-│  │   Auth Layer    │    │  │  OAuth via Token Vault      │   │   │
-│  │  ┌───────────┐  │    │  └────────────┬───────────────┘  │   │
-│  │  │ Cognito   │  │    │               │                   │   │
-│  │  │ User Pool │  │    │  ┌────────────▼───────────────┐  │   │
-│  │  └───────────┘  │    │  │  MCP Servers (Runtimes)    │   │   │
-│  └─────────────────┘    │  │  - AWS Documentation       │   │   │
-│                         │  │  - DataProcessing          │   │   │
+│  ┌─────────────────┐    │  │  (OAuth + Semantic Search)  │   │   │
+│  │   Auth Layer    │    │  └────────────┬───────────────┘  │   │
+│  │  ┌───────────┐  │    │               │                   │   │
+│  │  │ Cognito   │  │    │  ┌────────────▼───────────────┐  │   │
+│  │  │ User Pool │  │    │  │  MCP Servers (Runtimes)    │   │   │
+│  │  └───────────┘  │    │  │  - AWS Documentation       │   │   │
+│  └─────────────────┘    │  │  - DataProcessing (Athena) │   │   │
+│                         │  │  - MySQL (Aurora CRM)       │   │   │
 │  ┌─────────────────┐    │  └────────────────────────────┘  │   │
 │  │ Secrets Manager │    │                                   │   │
 │  │ (MCP creds)     │    │  ┌────────────────────────────┐  │   │
-│  └─────────────────┘    │  │  AgentCore Memory          │   │   │
+│  └─────────────────┘    │  │  Aurora MySQL Serverless v2 │  │   │
+│                         │  │  (CRM: customers, tickets,  │  │   │
+│  ┌─────────────────┐    │  │   orders, products)         │  │   │
+│  │ Token Vault     │    │  └────────────────────────────┘  │   │
+│  │ (OAuth Provider)│    │                                   │   │
+│  └─────────────────┘    │  ┌────────────────────────────┐  │   │
+│                         │  │  AgentCore Memory          │   │   │
 │                         │  │  (Summarization strategy)   │   │   │
-│  ┌─────────────────┐    │  └────────────────────────────┘  │   │
-│  │ Token Vault     │    └──────────────────────────────────┘   │
-│  │ (OAuth Provider)│                                            │
-│  └─────────────────┘                                            │
+│                         │  └────────────────────────────┘  │   │
+│                         └──────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -68,7 +72,8 @@ This CDK stack deploys the complete ACME Corp chatbot infrastructure on AWS, inc
 
 ### MCP Servers
 1. **AWS Documentation** - Search AWS docs, best practices, configuration guides
-2. **DataProcessing** - Athena, Glue, EMR data processing
+2. **DataProcessing** - Athena, Glue, EMR data processing (telemetry analytics)
+3. **MySQL** - Aurora MySQL CRM database via RDS Data API (customers, tickets, orders, products)
 
 ### Frontend
 - React TypeScript application
@@ -107,6 +112,9 @@ After deployment, the following outputs are available:
 | `GatewayId` | MCP Gateway ID |
 | `GatewayArn` | MCP Gateway ARN |
 | `OAuthProviderArn` | Token Vault OAuth provider ARN |
+| `AuroraClusterArn` | Aurora MySQL cluster ARN |
+| `AuroraSecretArn` | Aurora credentials secret ARN |
+| `AuroraDatabaseName` | Default database name (acme_crm) |
 
 ## Project Structure
 
@@ -120,8 +128,9 @@ cdk/
 │   │   ├── cognito-construct.ts  # Cognito User Pool
 │   │   ├── frontend-construct.ts # S3 + CloudFront
 │   │   ├── agent-runtime-construct.ts  # Main agent
+│   │   ├── aurora-construct.ts   # Aurora MySQL Serverless v2
 │   │   ├── gateway-construct.ts  # MCP Gateway
-│   │   ├── mcp-server-construct.ts     # MCP servers
+│   │   ├── mcp-server-construct.ts     # MCP servers (3)
 │   │   ├── memory-construct.ts   # AgentCore Memory
 │   │   ├── oauth-provider-construct.ts # Token Vault OAuth provider
 │   │   └── secrets-construct.ts  # Secrets Manager
@@ -131,7 +140,10 @@ cdk/
 │   ├── agent/                    # Main agent Dockerfile
 │   └── mcp-servers/              # MCP server Dockerfiles
 │       ├── aws-docs/
-│       └── dataproc/
+│       ├── dataproc/
+│       └── mysql/
+├── lambda/
+│   └── aurora-init/              # Aurora DB initialization
 ├── package.json
 ├── tsconfig.json
 └── cdk.json
@@ -159,15 +171,16 @@ cdk list
 ## Viewing Logs
 
 ```bash
-# Agent runtime logs (log group has -DEFAULT suffix)
-aws logs tail /aws/bedrock-agentcore/runtimes/acme_chatbot-GMG3nr6fes-DEFAULT --region us-west-2 --since 10m --format short
+# Agent runtime logs (log group has -DEFAULT suffix; runtime ID changes per deploy)
+aws logs tail /aws/bedrock-agentcore/runtimes/acme_chatbot-<RUNTIME_ID>-DEFAULT --region us-west-2 --since 10m --format short
 
-# Filter for real errors (exclude OTEL noise)
-aws logs tail /aws/bedrock-agentcore/runtimes/acme_chatbot-GMG3nr6fes-DEFAULT --region us-west-2 --since 10m --format short 2>&1 | grep -v 'otel-rt-logs' | grep -iE 'ERROR|WARN|Exception|fail|denied'
+# Filter for real errors (exclude OTEL telemetry noise)
+aws logs tail /aws/bedrock-agentcore/runtimes/acme_chatbot-<RUNTIME_ID>-DEFAULT --region us-west-2 --since 10m --format short 2>&1 | grep -v 'otel-rt-logs' | grep -iE 'ERROR|WARN|Exception|fail|denied'
 
-# MCP server logs
-aws logs tail /aws/bedrock-agentcore/runtimes/dataproc_mcp-86MK1VGnew-DEFAULT --region us-west-2 --since 10m --format short
-aws logs tail /aws/bedrock-agentcore/runtimes/aws_docs_mcp-KBewiR60Fg-DEFAULT --region us-west-2 --since 10m --format short
+# MCP server logs (replace <ID> with actual runtime suffix)
+aws logs tail /aws/bedrock-agentcore/runtimes/dataproc_mcp-<ID>-DEFAULT --region us-west-2 --since 10m --format short
+aws logs tail /aws/bedrock-agentcore/runtimes/aws_docs_mcp-<ID>-DEFAULT --region us-west-2 --since 10m --format short
+aws logs tail /aws/bedrock-agentcore/runtimes/mysql_mcp-<ID>-DEFAULT --region us-west-2 --since 10m --format short
 ```
 
 ## Troubleshooting

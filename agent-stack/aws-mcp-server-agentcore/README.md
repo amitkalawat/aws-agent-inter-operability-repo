@@ -82,6 +82,18 @@ Open and execute `mcp-agentcore-runtime.ipynb` to:
 6. Test the remote deployment
 7. Clean up resources
 
+## ACME MCP Servers
+
+In addition to the Rekognition example, this directory contains the production MCP servers used by the ACME chatbot:
+
+| Server | Description | Tools |
+|--------|-------------|-------|
+| `aws-documentation-mcp-server/` | AWS documentation search | Search AWS docs, best practices |
+| `aws-dataprocessing-mcp-server/` | Data analytics via Athena | SQL queries on telemetry data lake |
+| `aws-mysql-mcp-server/` | Aurora MySQL CRM database | `run_query`, `get_table_schema` via RDS Data API |
+
+The MySQL MCP server connects to Aurora MySQL Serverless v2 containing CRM data (customers, orders, products, support tickets) and exposes it through the MCP protocol.
+
 ## Project Structure
 
 ```
@@ -89,7 +101,10 @@ aws-mcp-server-agentcore/
 ├── mcp-agentcore-runtime.ipynb    # Main deployment notebook
 ├── requirements.txt               # Python dependencies
 ├── utils.py                      # Helper functions for Cognito and IAM
-├── amazon-rekognition-mcp-server/ # MCP server implementation
+├── amazon-rekognition-mcp-server/ # MCP server implementation (example)
+├── aws-documentation-mcp-server/  # AWS docs search MCP server
+├── aws-dataprocessing-mcp-server/ # Athena data processing MCP server
+├── aws-mysql-mcp-server/          # Aurora MySQL CRM MCP server
 ├── .env                          # Environment variables (create this)
 ├── .gitignore                    # Git ignore rules
 └── README.md                     # This file

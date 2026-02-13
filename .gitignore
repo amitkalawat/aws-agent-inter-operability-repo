@@ -23,6 +23,7 @@ agentcore-env/
 
 # Build outputs
 cdk.out/
+cdk.context.json
 dist/
 build/
 *.js
@@ -47,6 +48,9 @@ build/
 # Deployment artifacts
 deployment_info*.json
 .bedrock_agentcore.yaml
+
+# Generated data
+data-stack/consolidated-data-stack/output/
 
 # IDE
 .vscode/

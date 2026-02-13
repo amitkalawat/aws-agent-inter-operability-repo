@@ -30,7 +30,7 @@ Serverless streaming data infrastructure for generating, processing, and analyzi
 | **Kinesis Firehose** | Delivers to S3 with Hive partitioning (year/month/day/hour) |
 | **Lambda Functions** | Generator creates 1000 synthetic events per batch |
 | **S3 Data Lake** | Parquet with SNAPPY compression, Hive partitioned |
-| **Glue Catalog** | Table definitions for Athena queries (4 tables) |
+| **Glue Catalog** | Table definitions for Athena queries (4 tables), partition projection on streaming_events |
 
 ## Deployment
 

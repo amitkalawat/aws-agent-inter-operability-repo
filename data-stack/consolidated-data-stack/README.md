@@ -55,7 +55,7 @@ Single CDK deployment combining all ACME telemetry data infrastructure:
 
 | Table | Description | Partitioned |
 |-------|-------------|-------------|
-| `streaming_events` | Telemetry events (25 columns) | Yes (year/month/day/hour) |
+| `streaming_events` | Telemetry events (25 columns) | Yes (year/month/day/hour, partition projection) |
 | `customers` | Customer profiles (21 columns) | No |
 | `titles` | Video catalog (26 columns) | No |
 | `campaigns` | Ad campaigns (34 columns) | No |
@@ -231,11 +231,8 @@ aws kinesis describe-stream-summary --stream-name acme-telemetry-stream --region
 # Check S3 data
 aws s3 ls s3://acme-telemetry-data-${ACCOUNT}-us-west-2/telemetry/ --recursive | tail -10
 
-# Repair Athena partitions (after new data arrives)
-aws athena start-query-execution \
-  --query-string "MSCK REPAIR TABLE acme_telemetry.streaming_events" \
-  --result-configuration "OutputLocation=s3://acme-telemetry-data-${ACCOUNT}-us-west-2/athena-results/" \
-  --region us-west-2
+# NOTE: Partition projection is enabled on streaming_events - no MSCK REPAIR needed
+# Athena auto-discovers partitions based on the projection configuration
 ```
 
 ## Viewing Logs
@@ -318,16 +315,25 @@ CREATE EXTERNAL TABLE acme_telemetry.streaming_events (
 PARTITIONED BY (year STRING, month STRING, day STRING, hour STRING)
 STORED AS PARQUET
 LOCATION 's3://acme-telemetry-data-<ACCOUNT>-us-west-2/telemetry/'
-TBLPROPERTIES ('parquet.compression'='SNAPPY');
+TBLPROPERTIES (
+  'parquet.compression'='SNAPPY',
+  'projection.enabled'='true',
+  'projection.year.type'='integer', 'projection.year.range'='2024,2030',
+  'projection.month.type'='integer', 'projection.month.range'='1,12', 'projection.month.digits'='2',
+  'projection.day.type'='integer', 'projection.day.range'='1,31', 'projection.day.digits'='2',
+  'projection.hour.type'='integer', 'projection.hour.range'='0,23', 'projection.hour.digits'='2',
+  'storage.location.template'='s3://acme-telemetry-data-<ACCOUNT>-us-west-2/telemetry/year=${year}/month=${month}/day=${day}/hour=${hour}/'
+);
 
-MSCK REPAIR TABLE acme_telemetry.streaming_events;
+-- No MSCK REPAIR needed - partition projection auto-discovers partitions
 ```
 
 ### No Data in Athena Queries
 
 1. Check S3 has data: `aws s3 ls s3://acme-telemetry-data-${ACCOUNT}-us-west-2/telemetry/ --recursive`
-2. Run partition repair: `MSCK REPAIR TABLE acme_telemetry.streaming_events`
-3. Verify partition format matches Glue schema (`year=/month=/day=/hour=`)
+2. Verify partition format matches Hive convention (`year=/month=/day=/hour=`)
+3. Partition projection is enabled — no `MSCK REPAIR TABLE` needed for `streaming_events`
+4. For batch-uploaded data, ensure Parquet files don't contain partition columns in data (only in path)
 
 ### Python Dependency Issues on macOS
 

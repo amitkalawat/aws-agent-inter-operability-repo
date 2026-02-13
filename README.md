@@ -5,59 +5,65 @@ This repository demonstrates AWS Bedrock AgentCore with MCP (Model Context Proto
 ## Architecture Diagram
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────────────┐
-│                                    USER                                              │
-│                                      │                                               │
-│                                      ▼                                               │
-│  ┌─────────────────────────────────────────────────────────────────────────────┐    │
-│  │                         AGENT STACK (agent-stack/)                           │    │
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│                                     USER                                              │
+│                                       │                                               │
+│                                       ▼                                               │
+│  ┌──────────────────────────────────────────────────────────────────────────────┐    │
+│  │                          AGENT STACK (agent-stack/)                           │    │
+│  │                                                                               │    │
+│  │   ┌──────────────┐      ┌─────────────┐      ┌────────────────────────┐      │    │
+│  │   │  CloudFront  │      │   Cognito   │      │  Bedrock AgentCore     │      │    │
+│  │   │  + S3        │      │  User Pool  │      │  ┌──────────────────┐  │      │    │
+│  │   │  (React App) │─────▶│  (Auth)     │─────▶│  │  Main Agent      │  │      │    │
+│  │   └──────────────┘      └─────────────┘      │  │  (Claude Haiku)  │  │      │    │
+│  │                                              │  │  + Memory        │  │      │    │
+│  │                                              │  │  + Code Interp.  │  │      │    │
+│  │                                              │  └────────┬─────────┘  │      │    │
+│  │                                              └───────────┼────────────┘      │    │
+│  │                                                          │                   │    │
+│  │                                              ┌───────────▼────────────┐      │    │
+│  │                                              │    AgentCore           │      │    │
+│  │                                              │    MCP Gateway         │      │    │
+│  │                                              │    (OAuth + Semantic)  │      │    │
+│  │                                              └───────────┬────────────┘      │    │
+│  │                                                          │                   │    │
+│  │                    ┌─────────────────────────────────────┼──────────────┐    │    │
+│  │                    │      MCP Servers (Cognito OAuth)    │              │    │    │
+│  │                    │  ┌───────────┐ ┌──────────────┐ ┌──▼──────────┐   │    │    │
+│  │                    │  │ AWS Docs  │ │Data Processing│ │ MySQL MCP   │   │    │    │
+│  │                    │  │ MCP Server│ │ MCP Server   │ │ (Aurora CRM)│   │    │    │
+│  │                    │  └───────────┘ └──────┬───────┘ └─────────────┘   │    │    │
+│  │                    └───────────────────────┼───────────────────────────┘    │    │
+│  │                                            │                               │    │
+│  │   ┌──────────────────┐                     │                               │    │
+│  │   │  Aurora MySQL     │◀───────────────────┘ (via RDS Data API)            │    │
+│  │   │  Serverless v2    │                                                     │    │
+│  │   │  (CRM Database)   │                                                     │    │
+│  │   └──────────────────┘                                                      │    │
+│  └─────────────────────────────────────────────────────────────────────────────┘    │
+│                                            │                                        │
+│                                   Athena Queries                                    │
+│                                            │                                        │
+│  ┌─────────────────────────────────────────▼───────────────────────────────────┐    │
+│  │                          DATA STACK (data-stack/)                            │    │
 │  │                                                                              │    │
-│  │   ┌──────────────┐      ┌─────────────┐      ┌────────────────────────┐     │    │
-│  │   │  CloudFront  │      │   Cognito   │      │  Bedrock AgentCore     │     │    │
-│  │   │  + S3        │      │  User Pool  │      │  ┌──────────────────┐  │     │    │
-│  │   │  (React App) │─────▶│  (Auth)     │─────▶│  │  Main Agent      │  │     │    │
-│  │   └──────────────┘      └─────────────┘      │  │  (Claude Haiku)  │  │     │    │
-│  │                                              │  │  + Memory        │  │     │    │
-│  │                                              │  │  + Code Interp.  │  │     │    │
-│  │                                              │  └────────┬─────────┘  │     │    │
-│  │                                              └───────────┼────────────┘     │    │
-│  │                                                          │                  │    │
-│  │                                              ┌───────────▼────────────┐     │    │
-│  │                                              │    AgentCore           │     │    │
-│  │                                              │    MCP Gateway         │     │    │
-│  │                                              │    (Semantic Search)   │     │    │
-│  │                                              └───────────┬────────────┘     │    │
-│  │                                                          │                  │    │
-│  │                              ┌───────────────────────────┼───────────────┐  │    │
-│  │                              │    MCP Servers (IAM auth) │               │  │    │
-│  │                              │  ┌──────────────┐  ┌──────▼─────────┐     │  │    │
-│  │                              │  │  AWS Docs    │  │ Data Processing│     │  │    │
-│  │                              │  │  MCP Server  │  │ MCP Server     │     │  │    │
-│  │                              │  └──────────────┘  └───────┬────────┘     │  │    │
-│  │                              └────────────────────────────┼──────────────┘  │    │
-│  └───────────────────────────────────────────────────────────┼─────────────────┘    │
-│                                                              │                      │
-│                                                              ▼                      │
-│  ┌───────────────────────────────────────────────────────────────────────────────┐  │
-│  │                          DATA STACK (data-stack/)                              │  │
-│  │                                                                                │  │
-│  │   ┌──────────────┐     ┌──────────────┐     ┌──────────────┐                  │  │
-│  │   │ EventBridge  │────▶│  Generator   │────▶│  Producer    │                  │  │
-│  │   │ (5 min)      │     │  Lambda      │     │  Lambda      │                  │  │
-│  │   └──────────────┘     └──────────────┘     └──────┬───────┘                  │  │
-│  │                                                    │                          │  │
-│  │                                                    ▼                          │  │
-│  │   ┌──────────────┐     ┌──────────────┐     ┌──────────────┐                  │  │
-│  │   │   Athena     │◀────│ Glue Catalog │◀────│   Kinesis    │                  │  │
-│  │   │  (Queries)   │     │              │     │   Firehose   │                  │  │
-│  │   └──────┬───────┘     └──────────────┘     └──────┬───────┘                  │  │
-│  │          │                                         │                          │  │
-│  │          │              ┌──────────────┐           │                          │  │
-│  │          └─────────────▶│  S3 Data     │◀──────────┘                          │  │
-│  │                         │  Lake        │                                      │  │
-│  │                         └──────────────┘                                      │  │
-│  │                                                                                │  │
-│  └────────────────────────────────────────────────────────────────────────────────┘  │
+│  │   ┌──────────────┐     ┌──────────────┐     ┌──────────────┐                │    │
+│  │   │ EventBridge  │────▶│  Generator   │────▶│  Producer    │                │    │
+│  │   │ (5 min)      │     │  Lambda      │     │  Lambda      │                │    │
+│  │   └──────────────┘     └──────────────┘     └──────┬───────┘                │    │
+│  │                                                    │                        │    │
+│  │                                                    ▼                        │    │
+│  │   ┌──────────────┐     ┌──────────────┐     ┌──────────────┐                │    │
+│  │   │   Athena     │◀────│ Glue Catalog │◀────│   Kinesis    │                │    │
+│  │   │  (Queries)   │     │ (Partition   │     │   Firehose   │                │    │
+│  │   └──────┬───────┘     │  Projection) │     └──────┬───────┘                │    │
+│  │          │              └──────────────┘           │                        │    │
+│  │          │              ┌──────────────┐           │                        │    │
+│  │          └─────────────▶│  S3 Data     │◀──────────┘                        │    │
+│  │                         │  Lake        │                                    │    │
+│  │                         └──────────────┘                                    │    │
+│  └─────────────────────────────────────────────────────────────────────────────┘    │
 │                                                                                      │
 └──────────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -66,10 +72,13 @@ This repository demonstrates AWS Bedrock AgentCore with MCP (Model Context Proto
 
 1. **User Interaction**: User accesses the React app via CloudFront, authenticates with Cognito
 2. **Agent Invocation**: Authenticated requests invoke the Bedrock AgentCore Runtime
-3. **MCP Tools**: Agent uses MCP servers to search AWS docs or query telemetry data
-4. **Data Queries**: Data Processing MCP server runs Athena SQL queries on the S3 data lake
-5. **Data Generation**: EventBridge triggers Lambda functions every 5 minutes to generate synthetic telemetry
-6. **Data Pipeline**: Kinesis Firehose delivers streaming data to S3 with Hive partitioning
+3. **MCP Gateway**: Agent discovers and calls tools via the MCP Gateway (OAuth auth, semantic search)
+4. **MCP Tools**: 3 MCP servers provide AWS docs search, Athena analytics, and CRM queries
+5. **CRM Queries**: MySQL MCP server queries Aurora MySQL Serverless v2 (CRM data) via RDS Data API
+6. **Data Queries**: Data Processing MCP server runs Athena SQL queries on the S3 data lake
+7. **Data Generation**: EventBridge triggers Lambda every 5 minutes to generate synthetic telemetry
+8. **Data Pipeline**: Kinesis Firehose delivers streaming data to S3 with Hive partitioning
+9. **Partition Projection**: Athena auto-discovers new partitions without crawlers or manual repair
 
 ## Stack Overview
 
@@ -81,28 +90,30 @@ Contains the AI agent infrastructure built with AWS Bedrock AgentCore:
 - **Frontend**: React TypeScript application with AWS Cognito authentication
 - **Backend**: Python Strands agent powered by Claude Haiku 4.5
 - **Memory**: AWS Bedrock AgentCore Memory for conversation persistence
-- **MCP Integration**: 2 MCP servers (AWS Docs, Data Processing)
-- **MCP Gateway**: AgentCore Gateway for unified tool access with semantic search
+- **MCP Integration**: 3 MCP servers (AWS Docs, Data Processing, MySQL CRM)
+- **MCP Gateway**: AgentCore Gateway for unified tool access (OAuth auth, semantic search)
+- **Aurora MySQL**: Serverless v2 database for CRM data (customers, tickets, orders)
 - **Code Interpreter**: Python execution for data visualization
 
 ### Data Stack (`data-stack/`)
 Contains the streaming data infrastructure and analytics:
 
 - **Kinesis Data Stream**: On-Demand mode real-time data streaming
-- **Kinesis Firehose**: Delivers data to S3 with Hive partitioning
+- **Kinesis Firehose**: Delivers data to S3 with Hive partitioning (Parquet + SNAPPY)
 - **Data Generation**: Lambda functions generating synthetic ACME Corp telemetry data
-- **Data Lake**: S3-based storage with Glue catalog for Athena queries
+- **Data Lake**: S3-based storage with Glue catalog and Athena partition projection
 
 ## AWS Services Used
 
 - **AWS Bedrock AgentCore**: Agent runtime, memory, and MCP server hosting
-- **AWS Bedrock AgentCore Gateway**: Unified MCP tool access with semantic search
+- **AWS Bedrock AgentCore Gateway**: Unified MCP tool access (OAuth auth, semantic search)
+- **Amazon Aurora MySQL**: Serverless v2 for CRM data (via RDS Data API)
 - **Amazon Kinesis**: Data Stream and Firehose for streaming
 - **AWS Lambda**: Data generation and processing
 - **Amazon S3**: Data lake storage
-- **AWS Glue**: Data catalog and ETL
-- **Amazon Athena**: SQL queries on data lake
-- **AWS Cognito**: Authentication
+- **AWS Glue**: Data catalog with partition projection
+- **Amazon Athena**: SQL queries on data lake (auto-discovers partitions)
+- **AWS Cognito**: Authentication (user auth + OAuth M2M for MCP servers)
 - **Amazon CloudFront**: Frontend hosting
 
 ## Region
@@ -120,7 +131,8 @@ aws-agent-inter-operability-repo/
 │   ├── frontend/acme-chat/         # React TypeScript app
 │   └── aws-mcp-server-agentcore/   # MCP server implementations
 │       ├── aws-documentation-mcp-server/
-│       └── aws-dataprocessing-mcp-server/
+│       ├── aws-dataprocessing-mcp-server/
+│       └── aws-mysql-mcp-server/
 │
 └── data-stack/                     # Streaming Data Infrastructure
     └── consolidated-data-stack/    # Kinesis, Firehose, Glue, Lambdas
@@ -307,24 +319,7 @@ aws s3 ls s3://acme-telemetry-data-${ACCOUNT}-us-west-2/telemetry/ --recursive |
 echo "..."
 aws s3 ls s3://acme-telemetry-data-${ACCOUNT}-us-west-2/telemetry/ --recursive | wc -l | xargs -I{} echo "Total files: {}"
 
-#─────────────────────────────────────────────────────────────────────────────
-# Repair Athena partitions (telemetry only - it's partitioned)
-#─────────────────────────────────────────────────────────────────────────────
-QUERY_ID=$(aws athena start-query-execution \
-  --query-string "MSCK REPAIR TABLE acme_telemetry.streaming_events" \
-  --work-group primary \
-  --result-configuration "OutputLocation=s3://acme-telemetry-data-${ACCOUNT}-us-west-2/athena-results/" \
-  --region us-west-2 \
-  --query 'QueryExecutionId' --output text)
-
-echo "Partition repair query started: $QUERY_ID"
-echo "Waiting for completion..."
-sleep 5
-
-# ✓ VERIFY: Check query succeeded
-aws athena get-query-execution --query-execution-id $QUERY_ID \
-  --query 'QueryExecution.Status.State' --output text --region us-west-2
-# Expected: SUCCEEDED
+# NOTE: No partition repair needed - Athena partition projection auto-discovers partitions
 
 #─────────────────────────────────────────────────────────────────────────────
 # Test Athena query
@@ -353,7 +348,9 @@ After deployment, access the CloudFront URL and login with:
 ## Features
 
 - **Conversation Memory**: Persistent chat history via AgentCore Memory
-- **MCP Integration**: Query AWS docs and run Athena SQL queries
+- **MCP Integration**: Query AWS docs, run Athena SQL queries, and access CRM database
+- **MCP Gateway**: Unified tool access with OAuth authentication and semantic search
+- **CRM Database**: Aurora MySQL Serverless v2 with customers, orders, products, and support tickets
 - **Streaming Responses**: Real-time response streaming
 - **Code Interpreter**: Python execution for charts and data visualization
 
@@ -384,6 +381,12 @@ Once deployed with data, try these natural language queries:
 - "How are our ad campaigns performing?"
 - "What's the average CTR by campaign type?"
 - "Show top campaigns by conversions"
+
+### CRM Database (Aurora MySQL)
+- "How many open support tickets do we have?"
+- "Show me our top customers by order value"
+- "What products have the most orders?"
+- "List recent customer support tickets"
 
 ### AWS Documentation
 - "How do I create an S3 bucket with versioning?"

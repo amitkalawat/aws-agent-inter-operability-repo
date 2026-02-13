@@ -8,7 +8,7 @@ React TypeScript chat application for the ACME Corp Bedrock AgentCore chatbot.
 - Real-time streaming responses from Bedrock AgentCore
 - Markdown rendering with syntax highlighting
 - Conversation memory persistence
-- MCP tool integration (AWS Docs, Data Processing)
+- MCP tool integration (AWS Docs, Data Processing, MySQL CRM)
 
 ## Prerequisites
 
