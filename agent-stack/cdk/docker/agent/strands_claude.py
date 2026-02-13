@@ -386,6 +386,12 @@ Key guidelines:
 - Reference the data schema when writing SQL queries
 - Include source URLs when referencing AWS documentation
 
+TOOL DISCOVERY:
+Not all tools are listed by default. The gateway uses semantic search and some tools (like MySQL/CRM tools) must be discovered dynamically.
+- ALWAYS use the x_amz_bedrock_agentcore_search tool to find additional tools when your current tools don't cover what's needed
+- For CRM/MySQL queries: search with query "mysql database query" to discover mysql-mcp___run_query and mysql-mcp___get_table_schema
+- For any unfamiliar request: search with relevant keywords to discover available tools
+
 ACME TELEMETRY DATA:
 The acme_telemetry Glue database contains ACME Corp's video streaming platform data. Use the data processing MCP tools to query this data via Athena SQL.
 
@@ -434,7 +440,8 @@ Tables:
    Key columns: rating_id, customer_id, title_id, rating (1-5), review_text, created_at
 
 MySQL query guidelines:
-- Use the MySQL MCP tools (prefixed with mysql_mcp__ in gateway) to query this data
+- IMPORTANT: MySQL tools are NOT in the default tool list. You MUST first call x_amz_bedrock_agentcore_search with query "mysql database query" to discover them
+- The tools are: mysql-mcp___run_query (param: sql) and mysql-mcp___get_table_schema (params: table_name, database_name)
 - These tables complement the Athena telemetry data - customer_id and title_id can be used to correlate
 - Use standard MySQL syntax (not Athena/Presto syntax)
 - Default to read-only SELECT queries
