@@ -64,6 +64,20 @@ export class DataLakeStack extends cdk.Stack {
         parameters: {
           'classification': 'parquet',
           'parquet.compression': 'SNAPPY',
+          // Partition projection: Athena auto-discovers partitions without MSCK REPAIR TABLE or crawlers
+          'projection.enabled': 'true',
+          'projection.year.type': 'integer',
+          'projection.year.range': '2024,2030',
+          'projection.month.type': 'integer',
+          'projection.month.range': '1,12',
+          'projection.month.digits': '2',
+          'projection.day.type': 'integer',
+          'projection.day.range': '1,31',
+          'projection.day.digits': '2',
+          'projection.hour.type': 'integer',
+          'projection.hour.range': '0,23',
+          'projection.hour.digits': '2',
+          'storage.location.template': `s3://${this.dataBucket.bucketName}/telemetry/year=\${year}/month=\${month}/day=\${day}/hour=\${hour}/`,
         },
         storageDescriptor: {
           location: `s3://${this.dataBucket.bucketName}/telemetry/`,
