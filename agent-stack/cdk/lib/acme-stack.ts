@@ -14,6 +14,7 @@ import { OAuthProviderConstruct } from './constructs/oauth-provider-construct';
 import { AgentRuntimeConstruct } from './constructs/agent-runtime-construct';
 import { GatewayConstruct } from './constructs/gateway-construct';
 import { FrontendConstruct } from './constructs/frontend-construct';
+import { AuroraConstruct } from './constructs/aurora-construct';
 import { Config } from './config';
 
 export interface AcmeAgentCoreStackProps extends StackProps {
@@ -31,7 +32,8 @@ export interface AcmeAgentCoreStackProps extends StackProps {
  * - Cognito User Pool for authentication
  * - Secrets Manager for MCP credentials
  * - AgentCore Memory for conversation persistence
- * - MCP Servers (AWS Docs, DataProcessing)
+ * - Aurora MySQL Serverless v2 (CRM data via RDS Data API)
+ * - MCP Servers (AWS Docs, DataProcessing, MySQL)
  * - Main Agent Runtime (Strands + Claude Haiku 4.5)
  * - Frontend (React app on S3 + CloudFront)
  */
@@ -82,12 +84,22 @@ export class AcmeAgentCoreStack extends Stack {
     });
 
     // ========================================
+    // 3b. Aurora MySQL Database
+    // ========================================
+    const aurora = new AuroraConstruct(this, 'Aurora', {
+      removalPolicy,
+    });
+
+    // ========================================
     // 4. MCP Servers
     // ========================================
     const mcpServers = new McpServerConstruct(this, 'McpServers', {
       userPool: auth.userPool,
       mcpClient: auth.mcpClient,
       mcpCredentials: secrets.mcpCredentials,
+      auroraClusterArn: aurora.cluster.clusterArn,
+      auroraSecretArn: aurora.cluster.secret!.secretArn,
+      auroraDatabaseName: 'acme_crm',
       removalPolicy,
     });
 
