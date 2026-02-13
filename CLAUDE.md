@@ -138,9 +138,10 @@ The agent accesses all MCP tools through a single AgentCore Gateway (`gateway-co
 - **Outbound auth**: OAuth2 via Token Vault credential provider (Cognito client_credentials flow). Gateway role needs `GetWorkloadAccessToken` + `GetResourceOauth2Token` + `secretsmanager:GetSecretValue`
 - **Important**: Gateway targets for MCP servers require `GatewayCredentialProvider.fromOauthIdentityArn()`, NOT `fromIamRole()`
 - **Protocol**: MCP with semantic search for tool discovery
-- **Tool naming**: Gateway prefixes tools with target name: `{target-name}__{tool-name}`
+- **Tool naming**: Gateway prefixes tools with target name: `{target-name}___{tool-name}` (triple underscore, e.g., `mysql-mcp___run_query`)
 - Gateway URL passed to agent as `GATEWAY_MCP_URL` environment variable
 - Agent falls back to direct MCP connections if `GATEWAY_MCP_URL` is not set
+- **Tool pagination**: Gateway `tools/list` returns 30 tools per page with `nextCursor`. Strands `list_tools_sync()` does NOT auto-paginate — must loop with `pagination_token` or pass MCPClient directly to `Agent(tools=[client])` which calls `load_tools()` internally with auto-pagination
 
 ## Important Implementation Details
 
@@ -177,10 +178,13 @@ The agent accesses all MCP tools through a single AgentCore Gateway (`gateway-co
 ## Logs
 ```bash
 # Agent runtime logs (log group has -DEFAULT suffix)
-aws logs tail /aws/bedrock-agentcore/runtimes/acme_chatbot-GMG3nr6fes-DEFAULT --region us-west-2 --since 10m --format short
+aws logs tail /aws/bedrock-agentcore/runtimes/acme_chatbot-f6ZftiByME-DEFAULT --region us-west-2 --since 10m --format short
 
 # Filter for real errors (exclude OTEL telemetry noise)
-aws logs tail /aws/bedrock-agentcore/runtimes/acme_chatbot-GMG3nr6fes-DEFAULT --region us-west-2 --since 10m --format short 2>&1 | grep -v 'otel-rt-logs' | grep -iE 'ERROR|WARN|Exception|Traceback|fail|denied'
+aws logs tail /aws/bedrock-agentcore/runtimes/acme_chatbot-f6ZftiByME-DEFAULT --region us-west-2 --since 10m --format short 2>&1 | grep -v 'otel-rt-logs' | grep -iE 'ERROR|WARN|Exception|Traceback|fail|denied'
+
+# MySQL MCP server logs (filter out PingRequest noise)
+aws logs tail /aws/bedrock-agentcore/runtimes/mysql_mcp-Ve7mMS7AuK-DEFAULT --region us-west-2 --since 10m --format short 2>&1 | grep -ivE 'PingRequest|Terminating session'
 
 # Data generator Lambda
 aws logs tail /aws/lambda/acme-data-generator --region us-west-2 --since 10m
@@ -337,3 +341,5 @@ aws rds-data execute-statement --resource-arn "$CLUSTER_ARN" --secret-arn "$SECR
 | `AccessDenied: rds-data:ExecuteStatement` | MySQL MCP runtime role missing Data API permissions | Verify `additionalPolicies` in mcp-server-construct.ts includes `rds-data:*` actions targeting Aurora cluster ARN |
 | `AccessDenied: secretsmanager:GetSecretValue` on Aurora secret | MySQL MCP runtime can't read Aurora credentials | Verify `additionalPolicies` includes `secretsmanager:GetSecretValue` targeting Aurora secret ARN |
 | `BadRequestException: HttpEndpoint is not enabled` | RDS Data API not enabled on Aurora cluster | Verify `enableDataApi: true` in aurora-construct.ts |
+| Agent doesn't see MySQL/new MCP tools | Gateway `tools/list` paginates at 30. `list_tools_sync()` only fetches page 1 | Add pagination loop with `pagination_token` in `strands_claude.py`, or pass MCPClient directly to Agent constructor |
+| Aurora DB seeding `DatabaseNotFoundException` | Custom Resource Lambda fires before Aurora writer instance is ready | Add `auroraInit.node.addDependency(this.cluster)` in aurora-construct.ts |
