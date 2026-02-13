@@ -149,7 +149,18 @@ aws-agent-inter-operability-repo/
 
 ### Verify Prerequisites (Run These First!)
 
-Before starting deployment, verify all prerequisites are met:
+Run the automated preflight check script from the repo root:
+
+```bash
+./preflight.sh
+```
+
+This validates all prerequisites and auto-fixes common issues (e.g., recreates CDK ECR repo if deleted out-of-band). Checks: AWS CLI, credentials, Docker, Node.js >= 18, npm, CDK CLI, CDK bootstrap stack, CDK ECR repo, frontend build, and jq. Run `./preflight.sh --help` for options.
+
+<details>
+<summary>Manual checks (if not using preflight.sh)</summary>
+
+Verify all prerequisites are met:
 
 ```bash
 # 1. Check Node.js version (must be 18+)
@@ -185,6 +196,8 @@ echo "Your AWS Account ID: $ACCOUNT"
 - AWS credentials error → Run `aws configure` or check your IAM permissions
 - CDK not found → Run `npm install -g aws-cdk`
 - Wrong Node version → Use nvm: `nvm install 20 && nvm use 20`
+
+</details>
 
 ### Full Deployment (Both Stacks)
 
@@ -420,18 +433,17 @@ After deploying the agent stack, you'll get:
 | `Unable to locate credentials` | AWS CLI not configured | Run `aws configure` or set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY |
 | `User already exists` | Test user already created | Skip user creation or use different email |
 | `Stack AcmeAgentCoreStack does not exist` | Agent stack not deployed | Deploy agent stack first with `cdk deploy AcmeAgentCoreStack` |
+| CDK deploy fails after ECR repo deleted | `cdk-hnb659fds-container-assets-*` ECR repo deleted out-of-band | Run `./preflight.sh` (auto-fixes) or manually: `aws ecr create-repository --repository-name cdk-hnb659fds-container-assets-ACCOUNT-REGION` |
 | `HIVE_CURSOR_ERROR in Athena` | Schema mismatch | See data-stack README for table recreation SQL |
+| First Athena query very slow (~3.5 min) | Partition projection scans ~62K virtual partitions (year range 2024-2030) | Expected on first query after deploy. Subsequent queries are fast |
 
 ### Quick Diagnostic Commands
 
 ```bash
-# Check all prerequisites at once
-echo "=== Prerequisites Check ===" && \
-node --version && \
-npm --version && \
-docker info > /dev/null 2>&1 && echo "Docker: running" || echo "Docker: NOT RUNNING" && \
-aws sts get-caller-identity --query 'Account' --output text && \
-cdk --version
+# Check all prerequisites at once (recommended)
+./preflight.sh
+
+# Or check manually:
 
 # Check stack status
 aws cloudformation describe-stacks --stack-name AcmeAgentCoreStack \
