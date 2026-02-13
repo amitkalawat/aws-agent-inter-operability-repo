@@ -80,6 +80,30 @@ export class GatewayConstruct extends Construct {
       })
     );
 
+    // Gateway OAuth flow: GetWorkloadAccessToken (step 1) + GetResourceOauth2Token (step 2)
+    this.gateway.role.addToPrincipalPolicy(
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: [
+          'bedrock-agentcore:GetWorkloadAccessToken',
+          'bedrock-agentcore:GetResourceOauth2Token',
+        ],
+        resources: [
+          `arn:aws:bedrock-agentcore:${Config.aws.region}:*:workload-identity-directory/*`,
+          `arn:aws:bedrock-agentcore:${Config.aws.region}:*:token-vault/*`,
+        ],
+      })
+    );
+
+    // Gateway needs to read OAuth client secret from Secrets Manager
+    this.gateway.role.addToPrincipalPolicy(
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: ['secretsmanager:GetSecretValue'],
+        resources: [`arn:aws:secretsmanager:${Config.aws.region}:*:secret:*`],
+      })
+    );
+
     new CfnOutput(this, 'GatewayArn', {
       value: this.gateway.gatewayArn,
       description: 'ACME MCP Gateway ARN',
