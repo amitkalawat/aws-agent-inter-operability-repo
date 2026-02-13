@@ -376,7 +376,8 @@ def get_system_prompt(conversation_context: str = "") -> str:
 
 Available capabilities:
 - Search AWS documentation for services, best practices, and configuration guides
-- Query and analyze ACME Corp streaming data using Athena SQL
+- Query and analyze ACME Corp streaming telemetry data using Athena SQL
+- Query ACME Corp CRM data (support tickets, subscriptions, ratings) via MySQL
 - Execute Python code for data visualization (charts, graphs, plots)
 
 Key guidelines:
@@ -413,6 +414,30 @@ Query guidelines:
 - Use the manage_aws_athena_query_executions tool with operation start-query-execution to run queries
 - Use the manage_aws_glue_databases and manage_aws_glue_tables tools to discover full column details if needed
 - Default workgroup: primary
+
+ACME CRM DATA (Aurora MySQL via MySQL MCP tools):
+The acme_crm Aurora MySQL database contains ACME Corp's CRM and operational data. Use the MySQL MCP tools to query this data.
+
+Database: acme_crm
+Tables:
+1. support_tickets
+   Key columns: ticket_id, customer_id, subject, description,
+   status (open|in_progress|resolved|closed), priority (low|medium|high|critical),
+   category (billing|technical|content|account), agent_name, created_at, resolved_at
+
+2. subscriptions
+   Key columns: subscription_id, customer_id, plan (free_with_ads|basic|standard|premium),
+   status (active|cancelled|expired|paused), start_date, end_date,
+   monthly_amount, payment_method, auto_renew
+
+3. content_ratings
+   Key columns: rating_id, customer_id, title_id, rating (1-5), review_text, created_at
+
+MySQL query guidelines:
+- Use the MySQL MCP tools (prefixed with mysql_mcp__ in gateway) to query this data
+- These tables complement the Athena telemetry data - customer_id and title_id can be used to correlate
+- Use standard MySQL syntax (not Athena/Presto syntax)
+- Default to read-only SELECT queries
 
 CHART/VISUALIZATION GENERATION (execute_code_with_visualization tool):
 When asked to create charts, graphs, or data visualizations, use the execute_code_with_visualization tool with matplotlib code.
