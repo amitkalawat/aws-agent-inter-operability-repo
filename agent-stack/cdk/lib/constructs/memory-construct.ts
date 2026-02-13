@@ -1,6 +1,6 @@
 import { Construct } from 'constructs';
 import { Duration, CfnOutput, RemovalPolicy } from 'aws-cdk-lib';
-import { Memory } from '@aws-cdk/aws-bedrock-agentcore-alpha';
+import { Memory, MemoryStrategy } from '@aws-cdk/aws-bedrock-agentcore-alpha';
 import { Config } from '../config';
 
 export interface MemoryConstructProps {
@@ -14,12 +14,13 @@ export class MemoryConstruct extends Construct {
     super(scope, id);
 
     // Create AgentCore Memory for conversation persistence
-    // Using short-term memory only (no strategies) for simple conversation context
     this.memory = new Memory(this, 'ChatMemory', {
       memoryName: Config.agent.memory.name,
       description: 'Conversation memory for ACME chatbot - stores user interactions and context',
       expirationDuration: Duration.days(Config.agent.memory.expirationDays),
-      // No memoryStrategies = short-term memory only
+      memoryStrategies: [
+        MemoryStrategy.usingBuiltInSummarization(),
+      ],
     });
 
     // Outputs

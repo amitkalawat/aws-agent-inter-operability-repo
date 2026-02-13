@@ -92,7 +92,7 @@ const headers = {
 
 // POST to AgentCore endpoint
 const response = await axios.post(
-  `https://bedrock-agentcore.eu-central-1.amazonaws.com/runtimes/${encodedArn}/invocations?qualifier=DEFAULT`,
+  `https://bedrock-agentcore.us-west-2.amazonaws.com/runtimes/${encodedArn}/invocations?qualifier=DEFAULT`,
   { prompt: userMessage },
   { headers }
 );

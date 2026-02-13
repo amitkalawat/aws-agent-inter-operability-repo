@@ -3,6 +3,7 @@ import {
   Duration,
   RemovalPolicy,
   CfnOutput,
+  Stack,
 } from 'aws-cdk-lib';
 import {
   UserPool,
@@ -113,7 +114,8 @@ export class CognitoConstruct extends Construct {
     this.frontendCfnClient = this.frontendClient.node.defaultChild as CfnUserPoolClient;
 
     // Add a domain for OAuth flows (required for client credentials)
-    const domainPrefix = `${Config.naming.projectPrefix}-agentcore`;
+    // Domain prefix must be globally unique across all AWS accounts
+    const domainPrefix = `${Config.naming.projectPrefix}-agentcore-${Stack.of(this).account}`;
     const userPoolDomain = (this.userPool as UserPool).addDomain('Domain', {
       cognitoDomain: {
         domainPrefix: domainPrefix,

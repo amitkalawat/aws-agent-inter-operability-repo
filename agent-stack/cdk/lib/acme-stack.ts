@@ -10,7 +10,9 @@ import { CognitoConstruct } from './constructs/cognito-construct';
 import { SecretsConstruct } from './constructs/secrets-construct';
 import { MemoryConstruct } from './constructs/memory-construct';
 import { McpServerConstruct } from './constructs/mcp-server-construct';
+import { OAuthProviderConstruct } from './constructs/oauth-provider-construct';
 import { AgentRuntimeConstruct } from './constructs/agent-runtime-construct';
+import { GatewayConstruct } from './constructs/gateway-construct';
 import { FrontendConstruct } from './constructs/frontend-construct';
 import { Config } from './config';
 
@@ -90,6 +92,28 @@ export class AcmeAgentCoreStack extends Stack {
     });
 
     // ========================================
+    // 4b. OAuth Provider (Token Vault)
+    // ========================================
+    const oauthProvider = new OAuthProviderConstruct(this, 'OAuthProvider', {
+      userPool: auth.userPool,
+      mcpClient: auth.mcpClient,
+      cognitoDomain: auth.cognitoDomain,
+      discoveryUrl: auth.discoveryUrl,
+    });
+
+    // ========================================
+    // 4c. MCP Gateway
+    // ========================================
+    const gateway = new GatewayConstruct(this, 'Gateway', {
+      userPool: auth.userPool,
+      mcpClient: auth.mcpClient,
+      mcpServerArns: mcpServers.getArns(),
+      oauthProviderArn: oauthProvider.providerArn,
+      oauthSecretArn: oauthProvider.secretArn,
+      removalPolicy,
+    });
+
+    // ========================================
     // 5. Main Agent Runtime
     // ========================================
     const agent = new AgentRuntimeConstruct(this, 'Agent', {
@@ -98,8 +122,12 @@ export class AcmeAgentCoreStack extends Stack {
       mcpCredentials: secrets.mcpCredentials,
       memory: memory.memory,
       mcpServerEndpoints: mcpServers.getArns(),
+      gatewayUrl: gateway.gateway.gatewayUrl,
       removalPolicy,
     });
+
+    // Grant agent permission to invoke the gateway
+    gateway.gateway.grantInvoke(agent.runtime);
 
     // ========================================
     // 6. Frontend (S3 + CloudFront)
@@ -173,6 +201,7 @@ export class AcmeAgentCoreStack extends Stack {
         agentArn: this.agentArn,
         userPoolId: this.userPoolId,
         mcpServers: Object.keys(mcpServers.getArns()),
+        gatewayId: gateway.gateway.gatewayId,
       }, null, 2),
       description: 'Deployment summary JSON',
     });

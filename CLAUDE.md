@@ -6,7 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AWS Bedrock AgentCore demonstration with MCP (Model Context Protocol) integration. The project showcases an ACME Corp chatbot that can query AWS documentation and analyze streaming telemetry data via natural language.
 
-**Region**: us-west-2 | **Model**: Claude Haiku 4.5
+**Region**: us-west-2 | **Model**: Claude Haiku 4.5 | **Docker Platform**: linux/arm64
+
+## Git Workflow
+
+All development happens on the `dev` branch. The `main` branch is protected and should not be modified directly. Always work on `dev` and merge to `main` only for releases.
 
 ## Architecture
 
@@ -21,14 +25,19 @@ AWS Bedrock AgentCore demonstration with MCP (Model Context Protocol) integratio
 │  │   CloudFront ──▶ Cognito ──▶ Bedrock AgentCore Runtime              │  │
 │  │   (React App)    (Auth)      (Claude Haiku 4.5 + Memory)            │  │
 │  │                                       │                             │  │
-│  │                    ┌──────────────────┼──────────────────┐          │  │
-│  │                    │       MCP Servers                   │          │  │
-│  │                    │  ┌─────────────┐  ┌──────────────┐  │          │  │
-│  │                    │  │ AWS Docs    │  │ Data Process │  │          │  │
-│  │                    │  │ MCP Server  │  │ MCP Server   │──┼──────┐   │  │
-│  │                    │  └─────────────┘  └──────────────┘  │      │   │  │
-│  │                    └─────────────────────────────────────┘      │   │  │
-│  └─────────────────────────────────────────────────────────────────┼───┘  │
+│  │                              ┌────────▼────────┐                    │  │
+│  │                              │  AgentCore       │                    │  │
+│  │                              │  MCP Gateway     │                    │  │
+│  │                              │  (Semantic Search)│                   │  │
+│  │                              └───────┬──────────┘                   │  │
+│  │                    ┌─────────────────┼─────────────────┐            │  │
+│  │                    │     MCP Servers (Cognito OAuth)    │            │  │
+│  │                    │  ┌─────────────┐  ┌──────────────┐│            │  │
+│  │                    │  │ AWS Docs    │  │ Data Process ││            │  │
+│  │                    │  │ MCP Server  │  │ MCP Server   │├────────┐   │  │
+│  │                    │  └─────────────┘  └──────────────┘│        │   │  │
+│  │                    └───────────────────────────────────┘        │   │  │
+│  └────────────────────────────────────────────────────────────────┼───┘  │
 │                                                                    │      │
 │                                                          Athena Queries   │
 │                                                                    │      │
@@ -95,9 +104,14 @@ aws cognito-idp admin-set-user-password --user-pool-id $USER_POOL_ID \
 | `agent-stack/cdk/lib/acme-stack.ts` | Main CDK stack orchestrating all constructs |
 | `agent-stack/cdk/lib/config/index.ts` | Central configuration (region, naming, Cognito, model) |
 | `agent-stack/cdk/lib/constructs/secrets-construct.ts` | MCP credentials sync (Custom Resource) |
+| `agent-stack/cdk/lib/constructs/gateway-construct.ts` | MCP Gateway (unified tool access point) |
+| `agent-stack/cdk/lib/constructs/oauth-provider-construct.ts` | OAuth2 credential provider (Token Vault Custom Resource) |
 | `agent-stack/cdk/docker/agent/strands_claude.py` | Main agent logic with MCP client management |
 | `agent-stack/frontend/acme-chat/src/services/AuthService.ts` | Cognito auth (USER_PASSWORD_AUTH flow) |
 | `agent-stack/frontend/acme-chat/src/services/AgentCoreService.ts` | Agent invocation API client |
+| `agent-stack/cdk/docker/agent/memory_manager.py` | AgentCore Memory integration (short-term, 7-day expiry) |
+| `agent-stack/cdk/docker/agent/secrets_manager.py` | Secrets Manager client with 5-min TTL cache |
+| `agent-stack/frontend/acme-chat/src/config.ts` | Frontend config (reads REACT_APP_* env vars) |
 | `data-stack/consolidated-data-stack/lib/config.ts` | Data stack configuration |
 
 ## MCP Servers
@@ -105,6 +119,17 @@ aws cognito-idp admin-set-user-password --user-pool-id $USER_POOL_ID \
 Located in `agent-stack/aws-mcp-server-agentcore/`:
 - **aws-documentation-mcp-server**: Search AWS documentation
 - **aws-dataprocessing-mcp-server**: Athena SQL queries on ACME telemetry data
+
+## MCP Gateway
+
+The agent accesses all MCP tools through a single AgentCore Gateway (`gateway-construct.ts`):
+- **Inbound auth**: Cognito JWT (same credentials as direct MCP access)
+- **Outbound auth**: OAuth2 via Token Vault credential provider (Cognito client_credentials flow). Gateway role needs `GetWorkloadAccessToken` + `GetResourceOauth2Token` + `secretsmanager:GetSecretValue`
+- **Important**: Gateway targets for MCP servers require `GatewayCredentialProvider.fromOauthIdentityArn()`, NOT `fromIamRole()`
+- **Protocol**: MCP with semantic search for tool discovery
+- **Tool naming**: Gateway prefixes tools with target name: `{target-name}__{tool-name}`
+- Gateway URL passed to agent as `GATEWAY_MCP_URL` environment variable
+- Agent falls back to direct MCP connections if `GATEWAY_MCP_URL` is not set
 
 ## Important Implementation Details
 
@@ -114,10 +139,24 @@ Located in `agent-stack/aws-mcp-server-agentcore/`:
 - MCP credentials synced to Secrets Manager via CDK Custom Resource on every deploy
 - Agent caches secrets for 5 minutes (TTL in `secrets_manager.py`)
 
-### MCP Server Invocation
+### MCP Server Invocation (Legacy/Fallback)
+
+> Note: With the Gateway integration, direct MCP server invocation is a fallback path. The primary path is through the MCP Gateway.
+
 - **Accept Header**: Must include `application/json, text/event-stream` or get 406 error
 - **SSE Response**: MCP responses are Server-Sent Events format
 - **Session ID**: Capture `mcp-session-id` header from initialize response
+- **Bearer Token**: OAuth client_credentials flow via Cognito domain, cached for 50 minutes
+
+### Memory
+- Memory requires at least one strategy (e.g. `MemoryStrategy.usingBuiltInSummarization()`) for data plane operations (CreateEvent/ListEvents). Empty `strategies: []` causes "Memory status is not active" errors
+- Available built-in strategies: `usingBuiltInSummarization()`, `usingBuiltInSemantic()`, `usingBuiltInUserPreference()`
+
+### Frontend-Agent Communication
+- Session metadata embedded in prompt as `[META:{"sid":"...","uid":"..."}]` prefix
+- Agent parses and strips this prefix in `memory_manager.py:extract_session_info()`
+- Frontend env vars (`REACT_APP_*`) generated by `scripts/generate-env.sh` from CloudFormation outputs
+- Required env vars: `REACT_APP_COGNITO_USER_POOL_ID`, `REACT_APP_COGNITO_APP_CLIENT_ID`, `REACT_APP_AGENTCORE_ARN`
 
 ### Data Stack
 - **Kinesis**: On-Demand mode (auto-scales), 24hr retention
@@ -126,8 +165,11 @@ Located in `agent-stack/aws-mcp-server-agentcore/`:
 
 ## Logs
 ```bash
-# Agent runtime logs (replace runtime ID with actual)
-aws logs tail /aws/bedrock-agentcore/runtimes/acme_chatbot-* --region us-west-2 --since 10m
+# Agent runtime logs (log group has -DEFAULT suffix)
+aws logs tail /aws/bedrock-agentcore/runtimes/acme_chatbot-GMG3nr6fes-DEFAULT --region us-west-2 --since 10m --format short
+
+# Filter for real errors (exclude OTEL telemetry noise)
+aws logs tail /aws/bedrock-agentcore/runtimes/acme_chatbot-GMG3nr6fes-DEFAULT --region us-west-2 --since 10m --format short 2>&1 | grep -v 'otel-rt-logs' | grep -iE 'ERROR|WARN|Exception|Traceback|fail|denied'
 
 # Data generator Lambda
 aws logs tail /aws/lambda/acme-data-generator --region us-west-2 --since 10m
@@ -167,9 +209,14 @@ python data_generation/main.py --customers 1000 --titles 500 --telemetry 100000 
 # Upload to S3 (partition format must match Glue: year=/month=/day=/hour=)
 aws s3 sync output/ s3://acme-telemetry-data-${ACCOUNT}-us-west-2/ --exclude "metadata.json"
 
+# Configure Athena workgroup with query result location (required before any queries work)
+aws athena update-work-group --work-group primary \
+  --configuration-updates "ResultConfigurationUpdates={OutputLocation=s3://acme-telemetry-data-${ACCOUNT}-us-west-2/athena-results/}" \
+  --region us-west-2
+
 # Repair Glue table to discover partitions
 aws athena start-query-execution --query-string "MSCK REPAIR TABLE acme_telemetry.streaming_events" \
-  --work-group primary --result-configuration "OutputLocation=s3://acme-telemetry-data-${ACCOUNT}-us-west-2/athena-results/" --region us-west-2
+  --work-group primary --region us-west-2
 ```
 
 **Gotchas:**
@@ -187,6 +234,7 @@ When deleting and recreating the agent stack:
 2. `cd ../../cdk && cdk deploy AcmeAgentCoreStack` - deploys infrastructure + syncs MCP secrets
 3. Create test user (Cognito User Pool is new)
 4. `./scripts/deploy-frontend.sh` - regenerates .env from CloudFormation outputs
+5. Configure Athena workgroup output location and generate batch data (see Batch Data Generation section)
 
 ### Full Deploy (Both Stacks)
 ```bash
@@ -238,3 +286,13 @@ aws athena start-query-execution --query-string "SELECT COUNT(*) FROM acme_telem
 | `Docker daemon is not running` | Docker not started | Start Docker Desktop |
 | `CDK bootstrap required` | First deploy | Run `cdk bootstrap aws://ACCOUNT/us-west-2` |
 | `HIVE_CURSOR_ERROR` | Schema mismatch | See data-stack README for table recreation |
+| `Domain already associated with another user pool` | Cognito domain prefix is globally unique across all AWS accounts | Append account ID to domain prefix: `${prefix}-${Stack.of(this).account}` |
+| `MCP server target only supports OAUTH credential provider type` | Gateway targets for MCP servers cannot use IAM auth | Create OAuth2 credential provider in Token Vault, use `GatewayCredentialProvider.fromOauthIdentityArn()` |
+| `secretsmanager:CreateSecret` unauthorized | `CreateOauth2CredentialProvider` API internally creates a Secrets Manager secret | Add `secretsmanager:CreateSecret/UpdateSecret/DeleteSecret/GetSecretValue/DescribeSecret/PutSecretValue` to Lambda role |
+| `bedrock-agentcore:CreateTokenVault` unauthorized | OAuth provider creation requires Token Vault to exist first | Add `bedrock-agentcore:CreateTokenVault` and `GetTokenVault` permissions |
+| `Vendor response doesn't contain ProviderArn attribute` | CDK Provider Custom Resources must return a dict, not call `cfnresponse.send()` | Return `{'Data': {'Key': 'value'}}` from Lambda handler |
+| Memory stuck in CREATING during rollback | AgentCore Memory in transitional state cannot be deleted | Manually delete memory: `aws bedrock-agentcore-control delete-memory --memory-id ID`, then delete stack with `--retain-resources` |
+| `bedrock-agentcore:GetWorkloadAccessToken` unauthorized | Gateway service role needs this permission to fetch OAuth tokens for outbound MCP server calls | Add `bedrock-agentcore:GetWorkloadAccessToken` on `workload-identity-directory/*` to Gateway role |
+| `bedrock-agentcore:GetResourceOauth2Token` unauthorized | Gateway OAuth flow has two steps: `GetWorkloadAccessToken` then `GetResourceOauth2Token`. Both permissions required on `workload-identity-directory/*` and `token-vault/*` resources | Add both actions to Gateway role, plus `secretsmanager:GetSecretValue` for reading OAuth client secret |
+| Memory "not active" for data plane (CreateEvent/ListEvents) | Memory has `strategies: []` (empty). A strategy is required for full data plane operations | Add `MemoryStrategy.usingBuiltInSummarization()` to `memoryStrategies` in memory construct |
+| Athena query fails with "no output location" | Athena primary workgroup has no result location configured | Run `aws athena update-work-group --work-group primary --configuration-updates "ResultConfigurationUpdates={OutputLocation=s3://acme-telemetry-data-${ACCOUNT}-us-west-2/athena-results/}"` |

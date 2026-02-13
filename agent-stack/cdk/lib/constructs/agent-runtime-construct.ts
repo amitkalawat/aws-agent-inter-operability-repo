@@ -25,6 +25,7 @@ export interface AgentRuntimeConstructProps {
   readonly mcpCredentials: ISecret;
   readonly memory: IMemory;
   readonly mcpServerEndpoints: Record<string, string>;
+  readonly gatewayUrl?: string;
   readonly removalPolicy?: RemovalPolicy;
 }
 
@@ -91,6 +92,7 @@ export class AgentRuntimeConstruct extends Construct {
         DOCKER_CONTAINER: '1',
         VISUALIZATION_BUCKET: this.visualizationBucket.bucketName,
         ...mcpEndpointEnvVars,
+        ...(props.gatewayUrl ? { GATEWAY_MCP_URL: props.gatewayUrl } : {}),
       },
     });
 
