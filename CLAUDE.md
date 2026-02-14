@@ -198,6 +198,11 @@ aws logs tail /aws/bedrock-agentcore/runtimes/mysql_mcp-Ve7mMS7AuK-DEFAULT --reg
 
 # Data generator Lambda
 aws logs tail /aws/lambda/acme-data-generator --region us-west-2 --since 10m
+
+# Extract actual tool call errors from OTEL telemetry (e.g. AccessDenied, InvalidRequest)
+aws logs filter-log-events --log-group-name /aws/bedrock-agentcore/runtimes/acme_chatbot-QwwYAI4deZ-DEFAULT \
+  --region us-west-2 --start-time $(python3 -c "import time; print(int((time.time()-900)*1000))") \
+  --filter-pattern "AccessDenied" --query 'events[].message' --output text
 ```
 
 ## Athena Schema
@@ -251,9 +256,9 @@ python data_generation/main.py --customers 1000 --titles 500 --telemetry 100000 
 # Upload to S3 (partition format must match Glue: year=/month=/day=/hour=)
 aws s3 sync output/ s3://acme-telemetry-data-${ACCOUNT}-us-west-2/ --exclude "metadata.json"
 
-# Configure Athena workgroup with query result location (required before any queries work)
+# Configure Athena workgroup with query result location and enforce it (required before any queries work)
 aws athena update-work-group --work-group primary \
-  --configuration-updates "ResultConfigurationUpdates={OutputLocation=s3://acme-telemetry-data-${ACCOUNT}-us-west-2/athena-results/}" \
+  --configuration-updates "ResultConfigurationUpdates={OutputLocation=s3://acme-telemetry-data-${ACCOUNT}-us-west-2/athena-results/},EnforceWorkGroupConfiguration=true" \
   --region us-west-2
 ```
 
@@ -346,10 +351,11 @@ aws rds-data execute-statement --resource-arn "$CLUSTER_ARN" --secret-arn "$SECR
 | `bedrock-agentcore:GetWorkloadAccessToken` unauthorized | Gateway service role needs this permission to fetch OAuth tokens for outbound MCP server calls | Add `bedrock-agentcore:GetWorkloadAccessToken` on `workload-identity-directory/*` to Gateway role |
 | `bedrock-agentcore:GetResourceOauth2Token` unauthorized | Gateway OAuth flow has two steps: `GetWorkloadAccessToken` then `GetResourceOauth2Token`. Both permissions required on `workload-identity-directory/*` and `token-vault/*` resources | Add both actions to Gateway role, plus `secretsmanager:GetSecretValue` for reading OAuth client secret |
 | Memory "not active" for data plane (CreateEvent/ListEvents) | Memory has `strategies: []` (empty). A strategy is required for full data plane operations | Add `MemoryStrategy.usingBuiltInSummarization()` to `memoryStrategies` in memory construct |
-| Athena query fails with "no output location" | Athena primary workgroup has no result location configured | Run `aws athena update-work-group --work-group primary --configuration-updates "ResultConfigurationUpdates={OutputLocation=s3://acme-telemetry-data-${ACCOUNT}-us-west-2/athena-results/}"` |
+| Athena query fails with "no output location" or wrong bucket | Athena primary workgroup has no result location configured or enforcement is off | Run `aws athena update-work-group --work-group primary --configuration-updates "ResultConfigurationUpdates={OutputLocation=s3://acme-telemetry-data-${ACCOUNT}-us-west-2/athena-results/},EnforceWorkGroupConfiguration=true"` |
 | `AccessDenied: rds-data:ExecuteStatement` | MySQL MCP runtime role missing Data API permissions | Verify `additionalPolicies` in mcp-server-construct.ts includes `rds-data:*` actions targeting Aurora cluster ARN |
 | `AccessDenied: secretsmanager:GetSecretValue` on Aurora secret | MySQL MCP runtime can't read Aurora credentials | Verify `additionalPolicies` includes `secretsmanager:GetSecretValue` targeting Aurora secret ARN |
 | `BadRequestException: HttpEndpoint is not enabled` | RDS Data API not enabled on Aurora cluster | Verify `enableDataApi: true` in aurora-construct.ts |
 | Agent doesn't see MySQL/new MCP tools | Gateway `tools/list` paginates at 30. `list_tools_sync()` only fetches page 1 | Add pagination loop with `pagination_token` in `strands_claude.py`, or pass MCPClient directly to Agent constructor |
 | Aurora DB seeding `DatabaseNotFoundException` | Custom Resource Lambda fires before Aurora writer instance is ready | Add `auroraInit.node.addDependency(this.cluster)` in aurora-construct.ts |
 | Athena returns 0 rows for recent Firehose data | New S3 partitions not discovered by Glue | Enable partition projection on Glue table (see `data-lake-stack.ts`) or run `MSCK REPAIR TABLE` |
+| Agent uses simulated/fake data instead of Athena | Dataproc MCP role lacks `s3:ListAllMyBuckets` and agent guesses wrong output bucket | Ensure `EnforceWorkGroupConfiguration=true` on Athena `primary` workgroup (see Batch Data Generation section) |
