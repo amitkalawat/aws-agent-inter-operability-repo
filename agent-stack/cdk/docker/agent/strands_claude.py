@@ -7,6 +7,7 @@ CDK-managed deployment version
 import argparse
 import json
 import hashlib
+import re
 import requests
 import time
 import base64
@@ -277,6 +278,11 @@ def execute_code_with_visualization(
     if description:
         code = f"# {description}\n{code}"
 
+    # Strip plt.savefig() and plt.close() calls from user code
+    # so the wrapper can capture the figure
+    cleaned_code = re.sub(r'plt\.savefig\([^)]*\)', '# savefig handled by wrapper', code)
+    cleaned_code = re.sub(r'plt\.close\([^)]*\)', '# close handled by wrapper', cleaned_code)
+
     modified_code = f"""
 import matplotlib
 matplotlib.use('Agg')
@@ -284,7 +290,7 @@ import matplotlib.pyplot as plt
 import io
 import base64
 
-{code}
+{cleaned_code}
 
 if 'plt' in locals() and plt.get_fignums():
     buffer = io.BytesIO()
@@ -456,6 +462,8 @@ plt.ylabel('Sales ($)')
 plt.title('Monthly Sales Data')
 plt.tight_layout()
 ```
+
+IMPORTANT: Do NOT include plt.savefig(), plt.close(), or plt.show() in your code. The tool automatically captures and saves the chart. Just create the plot and leave it open.
 
 The tool will:
 1. Execute the matplotlib code
