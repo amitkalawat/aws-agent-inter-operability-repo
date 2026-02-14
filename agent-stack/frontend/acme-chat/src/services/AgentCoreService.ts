@@ -92,7 +92,7 @@ class AgentCoreService {
         },
         { 
           headers,
-          timeout: 120000, // 2 minutes timeout
+          timeout: 300000, // 5 minutes timeout (cold start can take ~180s)
         }
       );
 
