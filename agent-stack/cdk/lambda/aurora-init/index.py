@@ -50,23 +50,6 @@ def handler(event, context):
         """)
 
         execute_sql(resource_arn, secret_arn, database, """
-            CREATE TABLE IF NOT EXISTS subscriptions (
-                subscription_id VARCHAR(36) PRIMARY KEY,
-                customer_id VARCHAR(50) NOT NULL,
-                plan ENUM('free_with_ads', 'basic', 'standard', 'premium') NOT NULL,
-                status ENUM('active', 'cancelled', 'expired', 'paused') DEFAULT 'active',
-                start_date DATE NOT NULL,
-                end_date DATE,
-                monthly_amount DECIMAL(10,2) NOT NULL,
-                payment_method VARCHAR(50),
-                auto_renew BOOLEAN DEFAULT TRUE,
-                INDEX idx_customer (customer_id),
-                INDEX idx_plan (plan),
-                INDEX idx_status (status)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        """)
-
-        execute_sql(resource_arn, secret_arn, database, """
             CREATE TABLE IF NOT EXISTS content_ratings (
                 rating_id VARCHAR(36) PRIMARY KEY,
                 customer_id VARCHAR(50) NOT NULL,
@@ -81,9 +64,8 @@ def handler(event, context):
         """)
 
         # Seed sample data using batch inserts via Data API
-        # Generate ~200 support tickets, ~300 subscriptions, ~500 ratings
+        # Generate ~200 support tickets, ~500 ratings
         _seed_support_tickets(resource_arn, secret_arn, database)
-        _seed_subscriptions(resource_arn, secret_arn, database)
         _seed_content_ratings(resource_arn, secret_arn, database)
 
         return {'Data': {'Message': 'Database initialized successfully'}}
@@ -131,38 +113,6 @@ def _seed_support_tickets(resource_arn, secret_arn, database):
     for batch_start in range(0, len(values), 50):
         batch = values[batch_start:batch_start + 50]
         sql = f"INSERT IGNORE INTO support_tickets (ticket_id, customer_id, subject, description, status, priority, category, agent_name, created_at, resolved_at) VALUES {', '.join(batch)}"
-        execute_sql(resource_arn, secret_arn, database, sql)
-
-
-def _seed_subscriptions(resource_arn, secret_arn, database):
-    """Seed subscriptions table with sample data."""
-    plans = {'free_with_ads': 0.00, 'basic': 6.99, 'standard': 12.99, 'premium': 19.99}
-    payment_methods = ['credit_card', 'debit_card', 'paypal', 'apple_pay', 'google_pay']
-    statuses = ['active', 'active', 'active', 'cancelled', 'expired', 'paused']  # weighted toward active
-
-    random.seed(43)
-    values = []
-    for i in range(300):
-        sid = str(uuid.UUID(int=random.getrandbits(128)))
-        cid = f"CUST_{random.randint(1, 1000):06d}"
-        plan = random.choice(list(plans.keys()))
-        status = random.choice(statuses)
-        start = datetime(2024, 1, 1) + timedelta(days=random.randint(0, 730))
-        end = (start + timedelta(days=random.randint(30, 365))) if status in ('cancelled', 'expired') else None
-        end_str = f"'{end.strftime('%Y-%m-%d')}'" if end else "NULL"
-        amount = plans[plan]
-        payment = random.choice(payment_methods)
-        auto_renew = 1 if status == 'active' and plan != 'free_with_ads' else 0
-
-        values.append(
-            f"('{sid}', '{cid}', '{plan}', '{status}', "
-            f"'{start.strftime('%Y-%m-%d')}', {end_str}, {amount}, "
-            f"'{payment}', {auto_renew})"
-        )
-
-    for batch_start in range(0, len(values), 50):
-        batch = values[batch_start:batch_start + 50]
-        sql = f"INSERT IGNORE INTO subscriptions (subscription_id, customer_id, plan, status, start_date, end_date, monthly_amount, payment_method, auto_renew) VALUES {', '.join(batch)}"
         execute_sql(resource_arn, secret_arn, database, sql)
 
 

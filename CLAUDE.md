@@ -224,17 +224,15 @@ aws logs tail /aws/lambda/acme-data-generator --region us-west-2 --since 10m
 | Table | Description |
 |-------|-------------|
 | `support_tickets` | Customer support tickets (200 records) |
-| `subscriptions` | Customer subscription plans (300 records) |
 | `content_ratings` | Content ratings and reviews (500 records) |
 
 Key columns and enums:
 - `support_tickets.status`: open, in_progress, resolved, closed
 - `support_tickets.priority`: low, medium, high, critical
 - `support_tickets.category`: billing, technical, content, account
-- `subscriptions.plan`: free_with_ads, basic, standard, premium
-- `subscriptions.status`: active, cancelled, expired, paused
 - `content_ratings.rating`: 1-5 (integer)
 - `customer_id` links to `acme_telemetry.customers` for cross-database correlation
+- Subscription data is available in Athena (`acme_telemetry.customers.subscription_tier`)
 
 ## Batch Data Generation
 

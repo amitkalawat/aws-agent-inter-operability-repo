@@ -27,7 +27,6 @@ MCP Gateway (semantic search)
         │ (default VPC)
         └── Database: acme_crm
               ├── support_tickets
-              ├── subscriptions
               └── content_ratings
 ```
 
@@ -48,19 +47,6 @@ Complementary to the existing `acme_telemetry` Athena data. Provides CRM/operati
 | agent_name | VARCHAR(100) | Support agent assigned |
 | created_at | TIMESTAMP | When ticket was created |
 | resolved_at | TIMESTAMP | When ticket was resolved (nullable) |
-
-### Table: `subscriptions`
-| Column | Type | Description |
-|--------|------|-------------|
-| subscription_id | VARCHAR(36) PK | UUID |
-| customer_id | VARCHAR(50) | Links to telemetry customers |
-| plan | ENUM | free_with_ads, basic, standard, premium |
-| status | ENUM | active, cancelled, expired, paused |
-| start_date | DATE | Subscription start |
-| end_date | DATE | Subscription end (nullable if active) |
-| monthly_amount | DECIMAL(10,2) | Monthly charge |
-| payment_method | VARCHAR(50) | credit_card, paypal, etc. |
-| auto_renew | BOOLEAN | Auto-renewal enabled |
 
 ### Table: `content_ratings`
 | Column | Type | Description |
@@ -781,12 +767,7 @@ Tables:
    status (open|in_progress|resolved|closed), priority (low|medium|high|critical),
    category (billing|technical|content|account), agent_name, created_at, resolved_at
 
-2. subscriptions
-   Key columns: subscription_id, customer_id, plan (free_with_ads|basic|standard|premium),
-   status (active|cancelled|expired|paused), start_date, end_date,
-   monthly_amount, payment_method, auto_renew
-
-3. content_ratings
+2. content_ratings
    Key columns: rating_id, customer_id, title_id, rating (1-5), review_text, created_at
 
 MySQL query guidelines:

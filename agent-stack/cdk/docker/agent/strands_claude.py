@@ -377,7 +377,7 @@ def get_system_prompt(conversation_context: str = "") -> str:
 Available capabilities:
 - Search AWS documentation for services, best practices, and configuration guides
 - Query and analyze ACME Corp streaming telemetry data using Athena SQL
-- Query ACME Corp CRM data (support tickets, subscriptions, ratings) via MySQL
+- Query ACME Corp CRM data (support tickets, content ratings) via MySQL
 - Execute Python code for data visualization (charts, graphs, plots)
 
 Key guidelines:
@@ -428,17 +428,13 @@ Tables:
    status (open|in_progress|resolved|closed), priority (low|medium|high|critical),
    category (billing|technical|content|account), agent_name, created_at, resolved_at
 
-2. subscriptions
-   Key columns: subscription_id, customer_id, plan (free_with_ads|basic|standard|premium),
-   status (active|cancelled|expired|paused), start_date, end_date,
-   monthly_amount, payment_method, auto_renew
-
-3. content_ratings
+2. content_ratings
    Key columns: rating_id, customer_id, title_id, rating (1-5), review_text, created_at
 
 MySQL query guidelines:
 - Use the mysql-mcp___run_query tool (param: sql) and mysql-mcp___get_table_schema tool (params: table_name, database_name)
 - These tables complement the Athena telemetry data - customer_id and title_id can be used to correlate
+- For subscription/plan data, use Athena (acme_telemetry.customers table has subscription_tier column)
 - Use standard MySQL syntax (not Athena/Presto syntax)
 - Default to read-only SELECT queries
 

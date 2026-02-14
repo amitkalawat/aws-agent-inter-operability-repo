@@ -380,10 +380,10 @@ Once deployed with data, try these natural language queries:
 - "Show hourly viewing patterns"
 - "Which ISPs have the best streaming quality?"
 
-### Customer Analytics
+### Customer Analytics (Athena)
 - "How many customers do we have by subscription tier?"
 - "What's the average lifetime value by country?"
-- "Show me the churn rate by subscription tier"
+- "Show me a breakdown of customers by subscription tier"
 
 ### Content Analytics
 - "What are our top rated titles?"
